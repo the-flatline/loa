@@ -25,10 +25,15 @@ pip install git+https://github.com/the-flatline/loa-ring.git
 from loa_ring import Ring, animations
 
 ring = Ring(num=24)
-ring.fill((0, 255, 0))        # solid green
+ring.fill((0, 255, 0))            # tuple
+ring.fill("#00FF00")              # hex string — same color
+ring.fill(0x00FF00)               # int — same color
 ring.show(animations.scan_frames()[10])  # one frame of the comet
 ring.close()
 ```
+
+`fill()` and `show()` accept `(r,g,b)` tuples, `#RRGGBB` / `#RGB` hex strings,
+`0xRRGGBB` ints, or plain integers — whatever's easiest to say.
 
 ## The voice — three states
 
