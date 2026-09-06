@@ -43,7 +43,7 @@ class Ring:
         """Render one frame: an iterable of (r,g,b) tuples, len == self.num."""
         buf = bytearray()
         for (r, g, b) in frame:
-            buf += grb(int(g), int(r), int(b))
+            buf += grb(int(r), int(g), int(b))
         buf += b'\x00' * 24            # latch: 60us low
         self.spi.writebytes2(list(buf))
 
