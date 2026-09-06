@@ -46,28 +46,33 @@ def breath_frames(peak=HOME_PEAK, base=BASE,
     return [[hsv(hue, 1.0, v / 255) for _ in range(LED_COUNT)] for v in curve]
 
 
-def scan_frames(hue=150, peak=120, lap_steps=48, fade_steps=10):
+def scan_frames(hue=150, peak=120, lap_steps=47, fade_steps=10):
     """One comet lap. The head travels continuously around the ring — it's a
-    circle, no seam, no teleport. Tail is an exponential falloff behind the
-    head. When the lap completes, the tail fades in place where it ended."""
+    circle, no seam, no teleport. Tail is an exponential falloff BEHIND the
+    head (bright tip leads, trail follows). The lap ends with the head at a
+    clean LED position; the fade dissolves the tail in place with zero extra
+    motion — the comet stops where it stops and fades there."""
     frames = []
+    head_step = 24 / 48                 # 0.5 LED per frame
     for s in range(lap_steps):
-        head = s * (LED_COUNT / lap_steps)   # 0 -> 24, continuous
+        head = s * head_step            # 0 -> 23.0
         frame = []
         for i in range(LED_COUNT):
-            d = (i - head) % LED_COUNT       # distance behind head, circular
+            d = (head - i) % LED_COUNT  # distance BEHIND head, circular
             if d < 6:
                 b = peak * math.exp(-d * 0.9)
                 frame.append(hsv(hue, 0.7, b / 255))
             else:
                 frame.append((0, 0, 0))
         frames.append(frame)
+    final_head = (lap_steps - 1) * head_step   # where the head actually stopped
     for s in range(fade_steps):
+        amp = 1 - s / fade_steps
         frame = []
         for i in range(LED_COUNT):
-            d = (24 - i) % LED_COUNT         # tail trails behind end position
+            d = (final_head - i) % LED_COUNT
             if d < 6:
-                b = peak * math.exp(-d * 0.9) * (1 - s / fade_steps)
+                b = peak * math.exp(-d * 0.9) * amp
                 frame.append(hsv(hue, 0.7, b / 255))
             else:
                 frame.append((0, 0, 0))
