@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "loa-ring"
+version = "0.1.0"
+description = "WS2812 ring driver + animation library for the loa outpost (Raspberry Pi 5, SPI0)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = ["spidev>=3.5"]
+
+[project.scripts]
+loa-presence = "loa_ring.presence:main"
+
+[tool.setuptools]
+packages = ["loa_ring"]
