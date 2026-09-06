@@ -4,78 +4,53 @@ Theme PHOSPHOR, three states + event signals, all flag-driven:
   home  (default) : green breath, cyan drift
   busy  (/tmp/loa_busy)  : amber breath — working
   alarm (/tmp/loa_alarm) : full 255 red triple pulse — the yell
-  scan  (/tmp/loa_scan)  : one comet lap — attention, on demand (removes flag)
+  scan  (/tmp/loa_scan)  : one comet lap — attention, on demand
   glitch(/tmp/loa_glitch): one RGB-split stutter — corruption, on demand
 
 Priority: alarm > busy > scan > home.
 
-Rendering:
-- 60fps, clock-paced.
-- Gamma mapping: WS2812 LEDs are non-linear; intents are gamma-expanded into
-  code space so perceptually-even steps use more of the LED range.
-- Temporal dithering: per-LED error accumulators synthesize between-code
-  brightness by alternating frames (Bresenham-style error diffusion).
+Rendering: 60fps clock-paced. A fresh DitheredFrame per state so no error
+carryover flashes on transition. No fade spike — each state starts from its
+own curve's natural low point.
 """
 import os
 import time
 
 from .ring import Ring
+from .render import DitheredFrame
 from . import animations as anim
 
 FPS = 60
 FRAME_PERIOD = 1.0 / FPS
-GAMMA = 2.8          # WS2812-ish response exponent
 
 
-def gamma_code(intent: float) -> float:
-    """Map a perceptual intent 0..255 to a gamma-expanded code 0..255."""
-    if intent <= 0:
-        return 0.0
-    return 255.0 * (intent / 255.0) ** (1.0 / GAMMA)
+def _pace(ring, frame):
+    ring.show(frame)
+    time.sleep(FRAME_PERIOD)
 
 
-class DitheredFrame:
-    """Renders one per-LED color by error-diffusing float codes over frames.
-
-    Each LED has one accumulator per RGB channel; fractional target codes
-    accumulate and emit as floor levels, so between-code brightness is
-    synthesized by alternating frames (Bresenham-style error diffusion).
-    """
-
-    def __init__(self, num):
-        self.num = num
-        self.acc = [[0.0, 0.0, 0.0] for _ in range(num)]
-
-    def render(self, ring, frame):
-        """frame: list of (r,g,b) perceptual intents. Writes dithered codes."""
-        codes = []
-        for i, (r, g, b) in enumerate(frame):
-            target = (gamma_code(r), gamma_code(g), gamma_code(b))
-            out = []
-            for ch in range(3):
-                self.acc[i][ch] += target[ch]
-                level = int(self.acc[i][ch])
-                self.acc[i][ch] -= level
-                out.append(max(0, min(255, level)))
-            codes.append((out[0], out[1], out[2]))
-        ring.show(codes)
+def _home_frames():
+    """Generator: breath cycle with live hue drift, design-code frames."""
+    breath = anim.breath_frames(peak=anim.HOME_PEAK, fps=FPS)
+    idx = 0
+    while True:
+        hue = anim.home_hue(time.time())
+        yield [anim.hsv(hue, 1.0, max(p) / 255) for p in breath[idx]]
+        idx = (idx + 1) % len(breath)
 
 
-def fade_up(ring: Ring, peak=anim.HOME_PEAK, hue=120, steps=60):
-    for i in range(1, steps + 1):
-        ring.fill(anim.hsv(hue, 1.0, peak / 255 * (i / steps) ** 2))
+def home(ring):
+    dither = DitheredFrame(anim.LED_COUNT)
+    for frame in _home_frames():
+        if (os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG)
+                or os.path.exists(anim.SCAN_FLAG) or os.path.exists("/tmp/loa_glitch")):
+            return
+        dither.render(ring, frame)
         time.sleep(FRAME_PERIOD)
 
 
-def alarm(ring: Ring):
-    while os.path.exists(anim.ALARM_FLAG):
-        for frame in anim.alarm_frames():
-            ring.show(frame)
-            time.sleep(0.4 if frame[0][0] > 0 else 0.3)
-        time.sleep(2.0)
-
-
-def busy(ring: Ring, dither: DitheredFrame):
+def busy(ring):
+    dither = DitheredFrame(anim.LED_COUNT)
     frames = anim.busy_frames(fps=FPS)
     while os.path.exists(anim.BUSY_FLAG) and not os.path.exists(anim.ALARM_FLAG):
         for frame in frames:
@@ -85,21 +60,29 @@ def busy(ring: Ring, dither: DitheredFrame):
             time.sleep(FRAME_PERIOD)
 
 
-def one_scan(ring: Ring):
-    """One comet lap; consume the flag so it never loops."""
+def alarm(ring):
+    while os.path.exists(anim.ALARM_FLAG):
+        for frame in anim.alarm_frames():
+            ring.show(frame)
+            time.sleep(0.4 if frame[0][0] > 0 else 0.3)
+        time.sleep(2.0)
+
+
+def one_scan(ring):
+    dither = DitheredFrame(anim.LED_COUNT)
     for frame in anim.scan_frames(fps=FPS):
         if os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG):
             return
-        ring.show(frame)
+        dither.render(ring, frame)
         time.sleep(FRAME_PERIOD)
 
 
-def one_glitch(ring: Ring):
-    """One glitch stutter; consume the flag."""
+def one_glitch(ring):
+    dither = DitheredFrame(anim.LED_COUNT)
     for frame in anim.glitch_frames(fps=FPS):
         if os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG):
             return
-        ring.show(frame)
+        dither.render(ring, frame)
         time.sleep(FRAME_PERIOD)
 
 
@@ -112,37 +95,15 @@ def clear_consumed_flags():
                 pass
 
 
-def _render_home(ring: Ring, home_breath, dither: DitheredFrame):
-    """Clock-paced home loop: hue drifts per wall-clock, breath curves repeat."""
-    idx = 0
-    while True:
-        if (os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG)
-                or os.path.exists(anim.SCAN_FLAG) or os.path.exists("/tmp/loa_glitch")):
-            return
-        frame_start = time.monotonic()
-        hue = anim.home_hue(time.time())
-        frame = [anim.hsv(hue, 1.0, max(p) / 255) for p in home_breath[idx]]
-        dither.render(ring, frame)
-        idx = (idx + 1) % len(home_breath)
-        elapsed = time.monotonic() - frame_start
-        time.sleep(max(0.0, FRAME_PERIOD - elapsed))
-
-
 def main():
     ring = Ring(num=anim.LED_COUNT)
-    dither = DitheredFrame(anim.LED_COUNT)
     try:
-        fade_up(ring)
-        time.sleep(0.5)
-        home_breath = anim.breath_frames(peak=anim.HOME_PEAK, fps=FPS)
-
         while True:
             if os.path.exists(anim.ALARM_FLAG):
                 alarm(ring)
                 continue
             if os.path.exists(anim.BUSY_FLAG):
-                busy(ring, dither)
-                fade_up(ring, peak=anim.HOME_PEAK, hue=120)
+                busy(ring)
                 continue
             if os.path.exists(anim.SCAN_FLAG):
                 one_scan(ring)
@@ -152,8 +113,7 @@ def main():
                 one_glitch(ring)
                 clear_consumed_flags()
                 continue
-
-            _render_home(ring, home_breath, dither)
+            home(ring)
     finally:
         ring.close()
 
