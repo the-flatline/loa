@@ -8,6 +8,9 @@ Theme PHOSPHOR, three states + event signals, all flag-driven:
   glitch(/tmp/loa_glitch): one RGB-split stutter — corruption, on demand
 
 Priority: alarm > busy > scan > home.
+
+Renders at FPS frames per second using clock-based pacing: each frame is
+pre-computed per tick and shown as close to the frame period as Python allows.
 """
 import os
 import time
@@ -15,11 +18,14 @@ import time
 from .ring import Ring
 from . import animations as anim
 
+FPS = 60
+FRAME_PERIOD = 1.0 / FPS
 
-def fade_up(ring: Ring, peak=anim.HOME_PEAK, hue=120, steps=40):
+
+def fade_up(ring: Ring, peak=anim.HOME_PEAK, hue=120, steps=60):
     for i in range(1, steps + 1):
         ring.fill(anim.hsv(hue, 1.0, peak / 255 * (i / steps) ** 2))
-        time.sleep(0.05)
+        time.sleep(FRAME_PERIOD)
 
 
 def alarm(ring: Ring):
@@ -31,31 +37,31 @@ def alarm(ring: Ring):
 
 
 def busy(ring: Ring):
-    frames = anim.busy_frames()
+    frames = anim.busy_frames(fps=FPS)
     while os.path.exists(anim.BUSY_FLAG) and not os.path.exists(anim.ALARM_FLAG):
         for frame in frames:
             if not os.path.exists(anim.BUSY_FLAG) or os.path.exists(anim.ALARM_FLAG):
                 return
             ring.show(frame)
-            time.sleep(0.05)
+            time.sleep(FRAME_PERIOD)
 
 
 def one_scan(ring: Ring):
     """One comet lap; consume the flag so it never loops."""
-    for frame in anim.scan_frames():
+    for frame in anim.scan_frames(fps=FPS):
         if os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG):
             return
         ring.show(frame)
-        time.sleep(0.05)
+        time.sleep(FRAME_PERIOD)
 
 
 def one_glitch(ring: Ring):
     """One glitch stutter; consume the flag."""
-    for frame in anim.glitch_frames():
+    for frame in anim.glitch_frames(fps=FPS):
         if os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG):
             return
         ring.show(frame)
-        time.sleep(0.05)
+        time.sleep(FRAME_PERIOD)
 
 
 def clear_consumed_flags():
@@ -67,12 +73,29 @@ def clear_consumed_flags():
                 pass
 
 
+def _render_home(ring: Ring, home_breath):
+    """Clock-paced home loop: hue drifts per wall-clock, breath curves repeat."""
+    t_start = time.monotonic()
+    idx = 0
+    while True:
+        if (os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG)
+                or os.path.exists(anim.SCAN_FLAG) or os.path.exists("/tmp/loa_glitch")):
+            return
+        frame_start = time.monotonic()
+        hue = anim.home_hue(time.time())
+        frame = [anim.hsv(hue, 1.0, max(p) / 255) for p in home_breath[idx]]
+        ring.show(frame)
+        idx = (idx + 1) % len(home_breath)
+        elapsed = time.monotonic() - frame_start
+        time.sleep(max(0.0, FRAME_PERIOD - elapsed))
+
+
 def main():
     ring = Ring(num=anim.LED_COUNT)
     try:
         fade_up(ring)
-        time.sleep(1.0)
-        home_breath = anim.breath_frames(peak=anim.HOME_PEAK)
+        time.sleep(0.5)
+        home_breath = anim.breath_frames(peak=anim.HOME_PEAK, fps=FPS)
 
         while True:
             if os.path.exists(anim.ALARM_FLAG):
@@ -91,13 +114,7 @@ def main():
                 clear_consumed_flags()
                 continue
 
-            hue = anim.home_hue(time.time())
-            for frame in home_breath:
-                if (os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG)
-                        or os.path.exists(anim.SCAN_FLAG) or os.path.exists("/tmp/loa_glitch")):
-                    break
-                ring.show([anim.hsv(hue, 1.0, max(p) / 255) for p in frame])
-                time.sleep(0.05)
+            _render_home(ring, home_breath)
     finally:
         ring.close()
 
