@@ -11,6 +11,7 @@ LED_COUNT = 24
 
 ALARM_FLAG = "/tmp/loa_alarm"
 BUSY_FLAG  = "/tmp/loa_busy"
+SCAN_FLAG  = "/tmp/loa_scan"
 
 HOME_PEAK = 35
 BUSY_PEAK = 55
@@ -47,11 +48,12 @@ def breath_frames(peak=HOME_PEAK, base=BASE,
 
 
 def scan_frames(hue=150, peak=120, lap_steps=47, fade_steps=10):
-    """One comet lap. The head travels continuously around the ring — it's a
-    circle, no seam, no teleport. Tail is an exponential falloff BEHIND the
-    head (bright tip leads, trail follows). The lap ends with the head at a
-    clean LED position; the fade dissolves the tail in place with zero extra
-    motion — the comet stops where it stops and fades there."""
+    """One comet lap — an ATTENTION signal, fired on demand, not random.
+    The head travels continuously around the ring (it's a circle, no seam,
+    no teleport). Tail is an exponential falloff BEHIND the head. The lap
+    ends with the head at a clean LED position; the fade dissolves the tail
+    in place with zero extra motion — the comet stops where it stops and
+    fades there."""
     frames = []
     head_step = 24 / 48                 # 0.5 LED per frame
     for s in range(lap_steps):

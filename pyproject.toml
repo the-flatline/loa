@@ -13,6 +13,7 @@ dependencies = ["spidev>=3.5"]
 
 [project.scripts]
 loa-presence = "loa_ring.presence:main"
+loa-ctl = "loa_ring.control:serve"
 
 [tool.setuptools]
 packages = ["loa_ring"]

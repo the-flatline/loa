@@ -1,0 +1,14 @@
+[Unit]
+Description=loa control plane — ring state HTTP door (tailnet bound)
+After=network.target loa-presence.service
+
+[Service]
+Type=simple
+ExecStart=/home/flatline/venv/bin/loa-ctl
+Environment=LOA_CTL_BIND=100.68.85.10
+Restart=always
+RestartSec=3
+User=flatline
+
+[Install]
+WantedBy=multi-user.target

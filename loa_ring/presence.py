@@ -1,11 +1,13 @@
 """presence — the daemon entry point (loa-presence).
 
-Theme PHOSPHOR, three states:
-  home  (default) : green breath, cyan drift, scan comet, rare glitch
+Theme PHOSPHOR, three states + event signals, all flag-driven:
+  home  (default) : green breath, cyan drift
   busy  (/tmp/loa_busy)  : amber breath — working
   alarm (/tmp/loa_alarm) : full 255 red triple pulse — the yell
+  scan  (/tmp/loa_scan)  : one comet lap — attention, on demand (removes flag)
+  glitch(/tmp/loa_glitch): one RGB-split stutter — corruption, on demand
 
-Priority: alarm > busy > home.
+Priority: alarm > busy > scan > home.
 """
 import os
 import time
@@ -38,16 +40,39 @@ def busy(ring: Ring):
             time.sleep(0.05)
 
 
+def one_scan(ring: Ring):
+    """One comet lap; consume the flag so it never loops."""
+    for frame in anim.scan_frames():
+        if os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG):
+            return
+        ring.show(frame)
+        time.sleep(0.05)
+
+
+def one_glitch(ring: Ring):
+    """One glitch stutter; consume the flag."""
+    for frame in anim.glitch_frames():
+        if os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG):
+            return
+        ring.show(frame)
+        time.sleep(0.05)
+
+
+def clear_consumed_flags():
+    for f in (anim.SCAN_FLAG, "/tmp/loa_glitch"):
+        if os.path.exists(f):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+
+
 def main():
     ring = Ring(num=anim.LED_COUNT)
     try:
         fade_up(ring)
         time.sleep(1.0)
         home_breath = anim.breath_frames(peak=anim.HOME_PEAK)
-        scans = anim.scan_frames()
-        glitches = anim.glitch_frames()
-        next_scan = time.time() + 8
-        next_glitch = time.time() + 30
 
         while True:
             if os.path.exists(anim.ALARM_FLAG):
@@ -57,27 +82,20 @@ def main():
                 busy(ring)
                 fade_up(ring, peak=anim.HOME_PEAK, hue=120)
                 continue
+            if os.path.exists(anim.SCAN_FLAG):
+                one_scan(ring)
+                clear_consumed_flags()
+                continue
+            if os.path.exists("/tmp/loa_glitch"):
+                one_glitch(ring)
+                clear_consumed_flags()
+                continue
 
-            now = time.time()
-            if now >= next_scan:
-                for frame in scans:
-                    if os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG):
-                        break
-                    ring.show(frame)
-                    time.sleep(0.05)
-                next_scan = time.time() + 25
-            if now >= next_glitch:
-                for frame in glitches:
-                    if os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG):
-                        break
-                    ring.show(frame)
-                    time.sleep(0.05)
-                next_glitch = time.time() + 120
-
+            hue = anim.home_hue(time.time())
             for frame in home_breath:
-                if os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG):
+                if (os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG)
+                        or os.path.exists(anim.SCAN_FLAG) or os.path.exists("/tmp/loa_glitch")):
                     break
-                hue = anim.home_hue(time.time())
                 ring.show([anim.hsv(hue, 1.0, max(p) / 255) for p in frame])
                 time.sleep(0.05)
     finally:
