@@ -9,8 +9,12 @@ Theme PHOSPHOR, three states + event signals, all flag-driven:
 
 Priority: alarm > busy > scan > home.
 
-Renders at FPS frames per second using clock-based pacing: each frame is
-pre-computed per tick and shown as close to the frame period as Python allows.
+Rendering:
+- 60fps, clock-paced.
+- Gamma mapping: WS2812 LEDs are non-linear; intents are gamma-expanded into
+  code space so perceptually-even steps use more of the LED range.
+- Temporal dithering: per-LED error accumulators synthesize between-code
+  brightness by alternating frames (Bresenham-style error diffusion).
 """
 import os
 import time
@@ -20,6 +24,41 @@ from . import animations as anim
 
 FPS = 60
 FRAME_PERIOD = 1.0 / FPS
+GAMMA = 2.8          # WS2812-ish response exponent
+
+
+def gamma_code(intent: float) -> float:
+    """Map a perceptual intent 0..255 to a gamma-expanded code 0..255."""
+    if intent <= 0:
+        return 0.0
+    return 255.0 * (intent / 255.0) ** (1.0 / GAMMA)
+
+
+class DitheredFrame:
+    """Renders one per-LED color by error-diffusing float codes over frames.
+
+    Each LED has one accumulator per RGB channel; fractional target codes
+    accumulate and emit as floor levels, so between-code brightness is
+    synthesized by alternating frames (Bresenham-style error diffusion).
+    """
+
+    def __init__(self, num):
+        self.num = num
+        self.acc = [[0.0, 0.0, 0.0] for _ in range(num)]
+
+    def render(self, ring, frame):
+        """frame: list of (r,g,b) perceptual intents. Writes dithered codes."""
+        codes = []
+        for i, (r, g, b) in enumerate(frame):
+            target = (gamma_code(r), gamma_code(g), gamma_code(b))
+            out = []
+            for ch in range(3):
+                self.acc[i][ch] += target[ch]
+                level = int(self.acc[i][ch])
+                self.acc[i][ch] -= level
+                out.append(max(0, min(255, level)))
+            codes.append((out[0], out[1], out[2]))
+        ring.show(codes)
 
 
 def fade_up(ring: Ring, peak=anim.HOME_PEAK, hue=120, steps=60):
@@ -36,13 +75,13 @@ def alarm(ring: Ring):
         time.sleep(2.0)
 
 
-def busy(ring: Ring):
+def busy(ring: Ring, dither: DitheredFrame):
     frames = anim.busy_frames(fps=FPS)
     while os.path.exists(anim.BUSY_FLAG) and not os.path.exists(anim.ALARM_FLAG):
         for frame in frames:
             if not os.path.exists(anim.BUSY_FLAG) or os.path.exists(anim.ALARM_FLAG):
                 return
-            ring.show(frame)
+            dither.render(ring, frame)
             time.sleep(FRAME_PERIOD)
 
 
@@ -73,9 +112,8 @@ def clear_consumed_flags():
                 pass
 
 
-def _render_home(ring: Ring, home_breath):
+def _render_home(ring: Ring, home_breath, dither: DitheredFrame):
     """Clock-paced home loop: hue drifts per wall-clock, breath curves repeat."""
-    t_start = time.monotonic()
     idx = 0
     while True:
         if (os.path.exists(anim.ALARM_FLAG) or os.path.exists(anim.BUSY_FLAG)
@@ -84,7 +122,7 @@ def _render_home(ring: Ring, home_breath):
         frame_start = time.monotonic()
         hue = anim.home_hue(time.time())
         frame = [anim.hsv(hue, 1.0, max(p) / 255) for p in home_breath[idx]]
-        ring.show(frame)
+        dither.render(ring, frame)
         idx = (idx + 1) % len(home_breath)
         elapsed = time.monotonic() - frame_start
         time.sleep(max(0.0, FRAME_PERIOD - elapsed))
@@ -92,6 +130,7 @@ def _render_home(ring: Ring, home_breath):
 
 def main():
     ring = Ring(num=anim.LED_COUNT)
+    dither = DitheredFrame(anim.LED_COUNT)
     try:
         fade_up(ring)
         time.sleep(0.5)
@@ -102,7 +141,7 @@ def main():
                 alarm(ring)
                 continue
             if os.path.exists(anim.BUSY_FLAG):
-                busy(ring)
+                busy(ring, dither)
                 fade_up(ring, peak=anim.HOME_PEAK, hue=120)
                 continue
             if os.path.exists(anim.SCAN_FLAG):
@@ -114,7 +153,7 @@ def main():
                 clear_consumed_flags()
                 continue
 
-            _render_home(ring, home_breath)
+            _render_home(ring, home_breath, dither)
     finally:
         ring.close()
 
