@@ -1,11 +1,12 @@
 [Unit]
-Description=loa control plane — ring state HTTP door (tailnet bound)
+Description=loa control plane — ring state HTTP door
 After=network.target loa-presence.service
 
 [Service]
 Type=simple
 ExecStart=/home/flatline/venv/bin/loa-ctl
-Environment=LOA_CTL_BIND=100.68.85.10
+# Bind all interfaces; ice's firewall is the gate (dixie -> loa:8765 only)
+Environment=LOA_CTL_BIND=0.0.0.0
 Restart=always
 RestartSec=3
 User=flatline
