@@ -1,14 +1,26 @@
-"""loa_ring — the voice of loa.
+"""loa-ring — the loa outpost control stack.
 
-Hardware layer (Ring): drives a WS2812B ring over SPI (GPIO10 MOSI).
-Animation layer (animations): pure math, no hardware — returns frames as
-lists of LED_COUNT (r,g,b) tuples, so they can be rendered, simulated, or
-tested anywhere.
+Hardware layers (Ring: WS2812B over SPI; SH1106: the face over SPI0).
+Animation layers (pure math, no hardware — render anywhere).
+Cortex (cortex): SQLite state + event log — the nervous system.
+API (api): the FastAPI door the brain talks to.
+Daemons (presence: ring; oled_daemon: face).
 """
+
+__version__ = "0.3.0"
+
 from .ring import Ring
 from . import animations
+from . import cortex
 from . import control
 from . import presence
+from . import oled
+from . import oled_daemon
+from . import moods
+from . import expressions
+from . import api
 
-__all__ = ["Ring", "animations", "control", "presence"]
-__version__ = "0.2.0"
+__all__ = [
+    "Ring", "animations", "cortex", "control", "presence", "oled",
+    "oled_daemon", "moods", "expressions", "api",
+]

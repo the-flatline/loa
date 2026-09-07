@@ -1,14 +1,9 @@
-"""control — the door into the ring's state machine.
+"""control — DEPRECATED as of v0.3.0.
 
-A tiny HTTP control plane (stdlib only, no deps) that reads and writes the
-same flag files the presence daemon watches. Bind it to the tailnet so only
-the tailnet can reach it.
-
-  GET  /state            -> {"state": "home"|"busy"|"alarm"|"scan"}
-  POST /state            -> body {"state": "..."} — writes/clears flags
-  GET  /health           -> {"ok": true}
-
-Run as a service:  loa-ctl  (see deploy/loa-ctl.service)
+The old stdlib HTTP door (flag-file based) that the cortex replaced. The
+cortex (api.py + cortex.py + SQLite) supersedes it: same port, richer
+state, history, and no stuck flags. Kept for backward compat with running
+loa-ctl.service installs; remove after the cortex deploy lands.
 """
 import json
 import os

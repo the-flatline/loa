@@ -1,0 +1,13 @@
+[Unit]
+Description=loa face daemon — SH1106 OLED over SPI0, state-file driven
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/flatline/venv/bin/loa-oled
+Restart=always
+RestartSec=3
+User=flatline
+
+[Install]
+WantedBy=multi-user.target

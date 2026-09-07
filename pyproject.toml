@@ -4,16 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loa-ring"
-version = "0.2.0"
-description = "WS2812 ring driver + animation library for the loa outpost (Raspberry Pi 5, SPI0)"
+version = "0.3.0"
+description = "loa cortex — ring + OLED drivers, moods, expressions, and the HTTP controller for the loa outpost (Raspberry Pi 5)"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = ["spidev>=3.5"]
 
+[project.optional-dependencies]
+api = ["fastapi>=0.110", "uvicorn>=0.27"]
+
 [project.scripts]
 loa-presence = "loa_ring.presence:main"
 loa-ctl = "loa_ring.control:serve"
+loa-api = "loa_ring.api:main"
+loa-oled = "loa_ring.oled_daemon:main"
 
 [tool.setuptools]
 packages = ["loa_ring"]

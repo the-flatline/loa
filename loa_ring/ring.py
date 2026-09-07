@@ -61,13 +61,18 @@ class Ring:
         speed: SPI clock in Hz. 3.2MHz gives four SPI bits per WS2812 bit.
     """
 
-    def __init__(self, num: int = 24, bus: int = 0, device: int = 0,
-                 speed: int = 3_200_000):
+    def __init__(self, num: int = 24, bus: int | None = None,
+                 device: int | None = None, speed: int = 3_200_000):
         import spidev              # lazy: animations stay importable anywhere
+        from . import config
+        cfg = config.load()        # loa.conf is the as-built truth
         self.num = num
         self.spi = spidev.SpiDev()
-        self.spi.open(bus, device)
-        self.spi.max_speed_hz = speed
+        self.spi.open(
+            int(cfg.get("ring_bus", bus if bus is not None else 0)),
+            int(cfg.get("ring_device", device if device is not None else 0)),
+        )
+        self.spi.max_speed_hz = int(cfg.get("ring_speed", speed))
         self.spi.mode = 0b00
 
     def show(self, frame) -> None:
