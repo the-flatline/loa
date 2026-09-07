@@ -21,10 +21,16 @@ MODE_CLASSES = {
     "ripple": oled.Ripple,
     "noise": oled.Noise,
     "text": lambda text=None: oled.Marquee(text or "LOA"),
+    "showoff": oled.Showoff,
 }
 
 BRIGHT = 0xCF
 DIM = 0x18
+
+# pixel wash: full-frame static every few minutes keeps the panel's pixels
+# from holding one pattern long enough to ghost (Divv's suggestion).
+WASH_EVERY_S = 300.0
+WASH_SECS = 5.0
 
 
 def render_loop(display=None, max_frames=None):
@@ -34,6 +40,7 @@ def render_loop(display=None, max_frames=None):
     last_key = None
     renderer = None
     last_t = time.time()
+    last_wash = time.time()
     frames = 0
     try:
         display.clear()
@@ -48,6 +55,13 @@ def render_loop(display=None, max_frames=None):
                 frame.clear()
                 if mode == "off":
                     display.clear()
+            # pixel wash: exercise every pixel so no pattern ghosts. Skips
+            # "off" — a blank face isn't forming retention.
+            if st["oled_mode"] != "off" and time.time() - last_wash >= WASH_EVERY_S:
+                cortex.log_event("wash", {"secs": WASH_SECS})
+                _wash(display, frame, WASH_SECS)
+                last_wash = time.time()
+                continue
             if renderer is not None:
                 now = time.time()
                 dt = now - last_t
@@ -64,6 +78,17 @@ def render_loop(display=None, max_frames=None):
             display.close()
         except Exception:
             pass
+
+
+def _wash(display, frame, secs):
+    """Full-frame static for secs — clears any forming retention."""
+    noise = oled.Noise()
+    t_end = time.time() + secs
+    while time.time() < t_end:
+        frame.clear()
+        noise.draw(frame, time.time())
+        frame.blit(display)
+        time.sleep(FRAME_PERIOD)
 
 
 def _make_renderer(mode, state):

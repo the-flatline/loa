@@ -93,6 +93,9 @@ check("bad ring 400", r.status_code == 400)
 r = c.post("/display", json={"mode": "ecg"})
 check("display ecg", r.status_code == 200
       and cortex.get_state()["oled_mode"] == "ecg")
+r = c.post("/display", json={"mode": "showoff"})
+check("display showoff", r.status_code == 200
+      and cortex.get_state()["oled_mode"] == "showoff")
 r = c.post("/display", json={"mode": "text", "text": "TEST", "dim": True})
 check("display text dim", r.status_code == 200
       and cortex.get_state()["oled_text"] == "TEST"
@@ -104,7 +107,8 @@ print("== oled animations (no hardware) ==")
 fb = oled.Frame()
 for name, maker in [("scope", oled.Scope), ("ecg", oled.ECG),
                     ("ripple", oled.Ripple), ("noise", oled.Noise),
-                    ("marquee", lambda: oled.Marquee("THE OLD GIRL"))]:
+                    ("text", lambda: oled.Marquee("THE OLD GIRL")),
+                    ("showoff", oled.Showoff)]:
     fb.clear()
     maker().draw(fb, time.time())
     check(f"oled {name} draws pixels", sum(fb.buf) > 0)

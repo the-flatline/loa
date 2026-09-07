@@ -54,7 +54,7 @@ class RingRequest(BaseModel):
 
 
 class DisplayRequest(BaseModel):
-    mode: str = Field(..., description="scope|ecg|ripple|noise|text|off")
+    mode: str = Field(..., description="scope|ecg|ripple|noise|text|showoff|off")
     text: str | None = None
     dim: bool | None = None
 
@@ -196,7 +196,7 @@ def ring(req: RingRequest):
 
 @app.post("/display")
 def display(req: DisplayRequest):
-    if req.mode not in ("scope", "ecg", "ripple", "noise", "text", "off"):
+    if req.mode not in ("scope", "ecg", "ripple", "noise", "text", "showoff", "off"):
         raise HTTPException(
             400, "mode must be scope|ecg|ripple|noise|text|off")
     cortex.set_state({

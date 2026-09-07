@@ -18,6 +18,8 @@ import os
 import random
 import time
 
+from . import topaz
+
 WIDTH = 128
 HEIGHT = 64
 PAGES = 8
@@ -179,15 +181,16 @@ class Scope:
 
     def __init__(self, rng=None):
         self.rng = rng or random.Random()
-        self.blips = []          # (x, age)
-        self.next_blip = time.time() + self.rng.uniform(3.0, 7.0)
+        self.blips = []
+        # rare, gentle: 8-15s apart so a blip reads as a pulse, not a glitch
+        self.next_blip = time.time() + self.rng.uniform(8.0, 15.0)
 
     def tick(self, dt):
         now = time.time()
         self.blips = [(x, a + dt) for (x, a) in self.blips if a < 2.5]
         if now >= self.next_blip:
             self.blips.append((self.rng.randint(8, WIDTH - 8), 0.0))
-            self.next_blip = now + self.rng.uniform(4.0, 9.0)
+            self.next_blip = now + self.rng.uniform(8.0, 15.0)
 
     def draw(self, frame, t):
         # two-tone drift (90s x 23s): the line never rests on one row
@@ -376,3 +379,72 @@ def get_display():
         return SH1106()
     except Exception:
         return NullDisplay()
+
+
+class Showoff:
+    """The dinner-party mode: full demo loop — pattern sweep, Topaz marquee,
+    framed message, RGB-split glitch. Ported from the original oled_showoff.py
+    so the demo lives in the cortex instead of as a stray script fighting for
+    SPI.
+
+    Cycle: 3s sweep, 8s marquee, 2s message+glitch, 4s message hold.
+    """
+
+    CYCLE = 17.0
+    MSG1 = "CLEAN BUS"
+    MSG2 = "OLD GIRL SEES"
+
+    def __init__(self, text="CLEAN BUS - THE OLD GIRL SEES - LOA - ",
+                 rng=None):
+        self.text = text
+        self.rng = rng or random.Random()
+        self.strip_rows = topaz.strip(text)
+        self.strip_w = len(self.strip_rows[0])
+
+    def draw(self, frame, t):
+        ct = t % self.CYCLE
+        if ct < 3.0:
+            self._sweep(frame, t)
+        elif ct < 11.0:
+            self._marquee(frame, ct - 3.0)
+        elif ct < 13.0:
+            self._msg(frame)
+            self._glitch(frame)
+        else:
+            self._msg(frame)
+
+    def _sweep(self, frame, t):
+        phase = (int(t / 0.05) // 2) % 2
+        for x in range(WIDTH):
+            for p in range(PAGES):
+                if ((x // 8) + p + phase) % 2 == 0:
+                    for row_bit in range(8):
+                        frame.px(x, p * 8 + row_bit)
+
+    def _marquee(self, frame, ct):
+        y0 = 24
+        xwin = int(self.strip_w * (1.0 - ct / 8.0))
+        for r in range(16):
+            for sx in range(WIDTH):
+                src = xwin + sx
+                if 0 <= src < self.strip_w and self.strip_rows[r][src]:
+                    frame.px(sx, y0 + r)
+
+    def _msg(self, frame):
+        for x in range(WIDTH):
+            frame.px(x, 0)
+            frame.px(x, HEIGHT - 1)
+        for y in range(HEIGHT):
+            frame.px(0, y)
+            frame.px(WIDTH - 1, y)
+        topaz.draw(frame, self.MSG1, 40, 16)
+        topaz.draw(frame, self.MSG2, 28, 40)
+
+    def _glitch(self, frame):
+        base = list(frame.buf)
+        for _ in range(3):
+            band_page = self.rng.randint(0, PAGES - 1)
+            shift = self.rng.randint(1, 8)
+            for x in range(WIDTH):
+                frame.buf[band_page * WIDTH + x] = \
+                    base[band_page * WIDTH + (x - shift) % WIDTH]
