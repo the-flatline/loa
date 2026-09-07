@@ -1,0 +1,15 @@
+name: HC-SR04
+full_name: Ultrasonic ranger, 2-400 cm
+body_mm: [45, 20]
+pitch_mm: 2.54
+current_ma: 15
+source: verified on the loa bench 2026-09-07
+pins:
+  - {n: 1, name: VCC,  type: power,  voltage: 5.0}
+  - {n: 2, name: TRIG, type: input,  voltage: 3.3, note: accepts 3V3 logic from a Pi}
+  - {n: 3, name: ECHO, type: output, voltage: 5.0, danger: true,
+     danger_note: "output swings to 5 V — a Pi GPIO is 3.3 V max. 1k/2.2k divider first."}
+  - {n: 4, name: GND,  type: gnd}
+gotchas:
+  - "Divider maths: 5 V x 2.2/(1+2.2) = 3.44 V. Close to the limit; 1k/2k is safer if you have it."
+  - Needs a clear cone in front. Mounting it behind a grille or bezel wrecks the reading.

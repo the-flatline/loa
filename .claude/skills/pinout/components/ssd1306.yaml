@@ -1,0 +1,15 @@
+name: SSD1306
+full_name: 0.96 inch OLED, 128x64, I2C
+body_mm: [27, 27]
+pitch_mm: 2.54
+current_ma: 20
+bus: I2C @ 0x3C (some clones 0x3D)
+source: verified on the loa bench 2026-09-07
+pins:
+  - {n: 1, name: VCC, type: power, voltage: 3.3, note: many clones accept 3.3-5 V — check silkscreen}
+  - {n: 2, name: GND, type: gnd}
+  - {n: 3, name: SCL, type: i2c, voltage: 3.3}
+  - {n: 4, name: SDA, type: i2c, voltage: 3.3}
+gotchas:
+  - "PIN ORDER VARIES BY CLONE. Some are VCC/GND/SCL/SDA, others GND/VCC/SCL/SDA. Read the silkscreen every time."
+  - There is a 7-pin SPI variant of this module. If yours has 7 pins it is not this part.

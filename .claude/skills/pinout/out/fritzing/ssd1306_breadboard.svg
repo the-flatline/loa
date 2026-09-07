@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="0.4in" height="0.3in" viewBox="0 0 400 300">
+<rect x="0" y="0" width="400" height="186" fill="#2b3138"/>
+<rect id="connector0pin" x="35" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="50" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">VCC</text>
+<rect id="connector1pin" x="135" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="150" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">GND</text>
+<rect id="connector2pin" x="235" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="250" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">SCL</text>
+<rect id="connector3pin" x="335" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="350" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">SDA</text>
+</svg>

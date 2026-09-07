@@ -1,0 +1,15 @@
+name: XC3702
+full_name: Barometric pressure sensor module
+body_mm: [22, 17]
+pitch_mm: 2.54
+current_ma: 1
+bus: I2C @ 0x76 or 0x77
+source: Jaycar listing + loa bench 2026-09-07
+pins:
+  - {n: 1, name: VCC, type: power, voltage: 3.3}
+  - {n: 2, name: GND, type: gnd}
+  - {n: 3, name: SDA, type: i2c, voltage: 3.3}
+  - {n: 4, name: SCL, type: i2c, voltage: 3.3}
+gotchas:
+  - Address is 0x76 or 0x77 depending on the board's ADDR strap. i2cdetect before you write code.
+  - Shares the I2C bus with the OLED. Two devices, two addresses, one pair of wires.

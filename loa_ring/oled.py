@@ -159,18 +159,22 @@ FONT = {
 # ---------------------------------------------------------------------------
 # animations — pure math into a Frame, keyed by time so frame rate can change.
 
-def _grid(frame):
-    """Faint CRT grid: dotted horizontal lines every 8px below/above center."""
-    for y in (8, 16, 24, 40, 48, 56):
-        for x in range(0, WIDTH, 4):
-            frame.px(x, y)
+def _grid(frame, base):
+    """Faint CRT grid relative to the baseline — moves with it, so no fixed
+    pixels sit lit (OLED burn-in). Dotted rows every 8px above/below."""
+    for dy in (-24, -16, -8, 8, 16, 24):
+        y = base + dy
+        if 0 <= y < HEIGHT:
+            for x in range(0, WIDTH, 4):
+                frame.px(x, y)
 
 
 class Scope:
-    """The flatline: a flat trace, a sweeping scan bar, and rare blips.
+    """The flatline: drifting baseline, sweeping scan bar, rare blips.
 
-    Blips spawn at random x on a slow timer and decay in place — the only
-    times this line stops being flat.
+    Fully dynamic by design — OLEDs burn in if anything sits still. The
+    baseline drifts on a slow two-tone cycle, the CRT grid only flickers in
+    short windows, the scan bar never stops, and blips come and go.
     """
 
     def __init__(self, rng=None):
@@ -186,16 +190,19 @@ class Scope:
             self.next_blip = now + self.rng.uniform(4.0, 9.0)
 
     def draw(self, frame, t):
-        _grid(frame)
-        y = HEIGHT // 2
-        frame.line(0, y, WIDTH - 1, y)              # the flat line
+        # two-tone drift (90s x 23s): the line never rests on one row
+        base = 32 + round(2.0 * math.sin(2 * math.pi * t / 90.0)
+                          * math.sin(2 * math.pi * t / 23.0))
+        if (t % 24.0) < 3.0:     # grid flickers in 3s windows, 21s off
+            _grid(frame, base)
+        frame.line(0, base, WIDTH - 1, base)   # the flat line
         for (x, age) in self.blips:
             h = int(14 * (1.0 - age / 2.5))
             if h > 0:
-                frame.line(x, y - h, x, y + h)      # a blip: life, briefly
-        scan = int((t * 40.0) % WIDTH)              # phosphor sweep
-        frame.line(scan, y - 8, scan, y + 8)
-        frame.px(scan, y)
+                frame.line(x, base - h, x, base + h)   # a blip: life, briefly
+        scan = int((t * 40.0) % WIDTH)         # phosphor sweep
+        frame.line(scan, base - 8, scan, base + 8)
+        frame.px(scan, base)
 
 
 class ECG:
@@ -221,9 +228,10 @@ class ECG:
         return 0.0
 
     def draw(self, frame, t):
-        _grid(frame)
         off = (t * self.speed) % self.period
         y0 = HEIGHT // 2
+        if (t % 24.0) < 3.0:     # grid flickers, same burn-safe window as scope
+            _grid(frame, y0)
         for x in range(WIDTH):
             p = (x + off) % self.period
             y = int(round(y0 - self._wave(p)))

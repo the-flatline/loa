@@ -1,0 +1,25 @@
+name: LCD28-show-display
+full_name: 2.8 inch SPI touchscreen (XC9022 / lcdwiki family) — Pi header pins it CONSUMES
+body_mm: [50, 86]
+pitch_mm: 2.54
+bus: SPI0 + resistive touch
+source: https://www.lcdwiki.com/2.8inch_RPi_Display (pin interface table)
+pins:
+  - {n: 11, name: TP_IRQ, type: output, voltage: 3.3, danger: true,
+     danger_note: "GPIO17 — touch controller drives this. Collides with anything else on pin 11."}
+  - {n: 12, name: KEY1,   type: input,  voltage: 3.3, note: GPIO18 — also SPI1 CE0}
+  - {n: 13, name: RST,    type: input,  voltage: 3.3, note: GPIO27}
+  - {n: 15, name: LCD_RS, type: input,  voltage: 3.3, note: GPIO22}
+  - {n: 16, name: KEY2,   type: input,  voltage: 3.3, danger: true,
+     danger_note: "GPIO23 — a physical button. Anything else here gets shorted when pressed."}
+  - {n: 18, name: KEY3,   type: input,  voltage: 3.3, danger: true,
+     danger_note: "GPIO24 — a physical button. Same problem as KEY2."}
+  - {n: 19, name: MOSI,   type: spi, voltage: 3.3}
+  - {n: 21, name: MISO,   type: spi, voltage: 3.3}
+  - {n: 23, name: SCLK,   type: spi, voltage: 3.3}
+  - {n: 24, name: LCD_CS, type: spi, voltage: 3.3}
+  - {n: 26, name: TP_CS,  type: spi, voltage: 3.3}
+gotchas:
+  - "Numbers here are Pi HEADER pins, not module pins — this is a map of what the display takes away from you."
+  - Uses nothing above pin 26, so pins 29-40 stay free. That is where sensor signals should go.
+  - Also takes 1/17 (3V3), 2/4 (5V) and 6/9/14/20/25 (GND).

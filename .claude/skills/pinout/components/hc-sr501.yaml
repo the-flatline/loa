@@ -1,0 +1,14 @@
+name: HC-SR501
+full_name: PIR motion sensor
+body_mm: [32, 24]
+pitch_mm: 2.54
+current_ma: 65
+source: verified on the loa bench 2026-09-07
+pins:
+  - {n: 1, name: VCC, type: power,  voltage: 5.0}
+  - {n: 2, name: OUT, type: output, voltage: 3.3, note: already 3V3 — safe straight to a GPIO}
+  - {n: 3, name: GND, type: gnd}
+gotchas:
+  - Two trim pots — sensitivity and delay. Both fully anti-clockwise for minimum of each.
+  - The dome is 24 mm and overhangs roughly 12 breadboard columns while using 3.
+  - Needs 30-60 s to settle after power-up. Early readings are garbage.

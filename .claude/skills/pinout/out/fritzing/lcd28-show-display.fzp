@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module fritzingVersion="0.9.6" moduleId="lcd28-show-displayModuleID">
+  <title>LCD28-show-display</title>
+  <label>LCD28-show-display</label>
+  <description>2.8 inch SPI touchscreen (XC9022 / lcdwiki family) — Pi header pins it CONSUMES</description>
+  <views>
+    <breadboardView><layers image="breadboard/lcd28-show-display_breadboard.svg"><layer layerId="breadboard"/></layers></breadboardView>
+  </views>
+  <connectors>
+    <connector type="male" id="connector0" name="TP_IRQ">
+      <description>TP_IRQ (output, 3.3V)</description>
+      <views><breadboardView><p svgId="connector0pin" layer="breadboard"/></breadboardView></views>
+    </connector>
+    <connector type="male" id="connector1" name="KEY1">
+      <description>KEY1 (input, 3.3V)</description>
+      <views><breadboardView><p svgId="connector1pin" layer="breadboard"/></breadboardView></views>
+    </connector>
+    <connector type="male" id="connector2" name="RST">
+      <description>RST (input, 3.3V)</description>
+      <views><breadboardView><p svgId="connector2pin" layer="breadboard"/></breadboardView></views>
+    </connector>
+    <connector type="male" id="connector3" name="LCD_RS">
+      <description>LCD_RS (input, 3.3V)</description>
+      <views><breadboardView><p svgId="connector3pin" layer="breadboard"/></breadboardView></views>
+    </connector>
+    <connector type="male" id="connector4" name="KEY2">
+      <description>KEY2 (input, 3.3V)</description>
+      <views><breadboardView><p svgId="connector4pin" layer="breadboard"/></breadboardView></views>
+    </connector>
+    <connector type="male" id="connector5" name="KEY3">
+      <description>KEY3 (input, 3.3V)</description>
+      <views><breadboardView><p svgId="connector5pin" layer="breadboard"/></breadboardView></views>
+    </connector>
+    <connector type="male" id="connector6" name="MOSI">
+      <description>MOSI (spi, 3.3V)</description>
+      <views><breadboardView><p svgId="connector6pin" layer="breadboard"/></breadboardView></views>
+    </connector>
+    <connector type="male" id="connector7" name="MISO">
+      <description>MISO (spi, 3.3V)</description>
+      <views><breadboardView><p svgId="connector7pin" layer="breadboard"/></breadboardView></views>
+    </connector>
+    <connector type="male" id="connector8" name="SCLK">
+      <description>SCLK (spi, 3.3V)</description>
+      <views><breadboardView><p svgId="connector8pin" layer="breadboard"/></breadboardView></views>
+    </connector>
+    <connector type="male" id="connector9" name="LCD_CS">
+      <description>LCD_CS (spi, 3.3V)</description>
+      <views><breadboardView><p svgId="connector9pin" layer="breadboard"/></breadboardView></views>
+    </connector>
+    <connector type="male" id="connector10" name="TP_CS">
+      <description>TP_CS (spi, 3.3V)</description>
+      <views><breadboardView><p svgId="connector10pin" layer="breadboard"/></breadboardView></views>
+    </connector>
+  </connectors>
+</module>

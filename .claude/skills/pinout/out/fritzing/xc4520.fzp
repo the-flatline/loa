@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module fritzingVersion="0.9.6" moduleId="xc4520ModuleID">
+  <title>XC4520</title>
+  <label>XC4520</label>
+  <description>Temperature and humidity module (DHT-series on a carrier)</description>
+  <views>
+    <breadboardView><layers image="breadboard/xc4520_breadboard.svg"><layer layerId="breadboard"/></layers></breadboardView>
+  </views>
+  <connectors>
+    <connector type="male" id="connector0" name="VCC">
+      <description>VCC (power, 5.0V)</description>
+      <views><breadboardView><p svgId="connector0pin" layer="breadboard"/></breadboardView></views>
+    </connector>
+    <connector type="male" id="connector1" name="DATA">
+      <description>DATA (bidir, 3.3V)</description>
+      <views><breadboardView><p svgId="connector1pin" layer="breadboard"/></breadboardView></views>
+    </connector>
+    <connector type="male" id="connector2" name="GND">
+      <description>GND (gnd)</description>
+      <views><breadboardView><p svgId="connector2pin" layer="breadboard"/></breadboardView></views>
+    </connector>
+  </connectors>
+</module>

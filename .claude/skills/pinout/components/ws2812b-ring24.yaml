@@ -1,0 +1,16 @@
+name: WS2812B-ring24
+full_name: 24 x WS2812B addressable LED ring
+body_mm: [66, 66]
+pitch_mm: 2.54
+current_ma: 1440
+source: measured worst case, loa 2026-09-07
+pins:
+  - {n: 1, name: 5V,  type: power,  voltage: 5.0, danger: true,
+     danger_note: "1.44 A at full white (24 x 3 x 20 mA). Do not source this from a Pi header pin."}
+  - {n: 2, name: DIN, type: input,  voltage: 5.0, note: 3V3 from a Pi usually works; 330R in series}
+  - {n: 3, name: GND, type: gnd}
+gotchas:
+  - "Brightness IS the current budget: 100% = 1.44 A, 50% = 0.72 A, 30% = 0.43 A, 20% = 0.29 A."
+  - 330R in series with DIN, and 1000uF across 5V/GND right at the ring.
+  - GND must be common with whatever drives DIN or the data line has no reference.
+  - Channel order is GRB, not RGB. Green and red swap if you assume RGB.

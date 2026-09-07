@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1.1in" height="0.3in" viewBox="0 0 1100 300">
+<rect x="0" y="0" width="1100" height="186" fill="#2b3138"/>
+<rect id="connector0pin" x="35" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="50" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">TP_IRQ</text>
+<rect id="connector1pin" x="135" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="150" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">KEY1</text>
+<rect id="connector2pin" x="235" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="250" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">RST</text>
+<rect id="connector3pin" x="335" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="350" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">LCD_RS</text>
+<rect id="connector4pin" x="435" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="450" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">KEY2</text>
+<rect id="connector5pin" x="535" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="550" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">KEY3</text>
+<rect id="connector6pin" x="635" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="650" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">MOSI</text>
+<rect id="connector7pin" x="735" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="750" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">MISO</text>
+<rect id="connector8pin" x="835" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="850" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">SCLK</text>
+<rect id="connector9pin" x="935" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="950" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">LCD_CS</text>
+<rect id="connector10pin" x="1035" y="186" width="30" height="114" fill="#8c8942"/>
+<text x="1050" y="135" font-size="40" fill="#e7ebef" text-anchor="middle">TP_CS</text>
+</svg>

@@ -1,0 +1,15 @@
+name: XC4520
+full_name: Temperature and humidity module (DHT-series on a carrier)
+body_mm: [23, 20]
+pitch_mm: 2.54
+current_ma: 2
+bus: 1-wire proprietary
+source: Jaycar listing + loa bench 2026-09-07
+pins:
+  - {n: 1, name: VCC,  type: power,  voltage: 5.0}
+  - {n: 2, name: DATA, type: bidir,  voltage: 3.3, note: open-drain-ish, needs a pull-up to VCC}
+  - {n: 3, name: GND,  type: gnd}
+gotchas:
+  - Needs a 4.7k pull-up from DATA to VCC. Without it you get read timeouts, not an error.
+  - Self-heats and reads high near a warm board. Keep it away from the Pi's thermal plume.
+  - One reading per 2 s maximum. Polling faster returns the cached sample.
