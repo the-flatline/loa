@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi.testclient import TestClient  # noqa: E402
 
 from loa_ring import api, cortex, expressions, moods, oled, presence  # noqa: E402
-from loa_ring.oled_daemon import render_loop  # noqa: E402
+from loa_ring.oled_daemon import _wash, render_loop  # noqa: E402
 
 PASS = 0
 
@@ -116,6 +116,26 @@ for name, maker in [("scope", oled.Scope), ("ecg", oled.ECG),
 print("== oled daemon smoke ==")
 render_loop(max_frames=10)
 check("oled daemon runs (NullDisplay)", True)
+
+print("== pixel wash provable coverage ==")
+
+class RecordingDisplay:
+    def __init__(self):
+        self.frames = []
+    def clear(self):
+        pass
+    def set_contrast(self, v):
+        pass
+    def show(self, buf, offset=None):
+        self.frames.append(bytes(buf))
+    def close(self):
+        pass
+
+rec = RecordingDisplay()
+wash_frame = oled.Frame()
+_wash(rec, wash_frame, 1.0)                      # blink window 0.4s: ON then OFF
+check("wash drives every pixel ON", any(all(b == 0xFF for b in f) for f in rec.frames))
+check("wash drives every pixel OFF", any(all(b == 0x00 for b in f) for f in rec.frames))
 
 print("== presence daemon loops (FakeRing) ==")
 

@@ -7,6 +7,7 @@ the API never touches hardware, the daemon never thinks about intent.
 Modes: scope (the flatline) | ecg | ripple | noise | text (marquee) | off
 """
 
+import random
 import time
 
 from . import cortex
@@ -59,7 +60,9 @@ def render_loop(display=None, max_frames=None):
             # "off" — a blank face isn't forming retention.
             if st["oled_mode"] != "off" and time.time() - last_wash >= WASH_EVERY_S:
                 cortex.log_event("wash", {"secs": WASH_SECS})
+                display.set_contrast(BRIGHT)      # full swing clears best
                 _wash(display, frame, WASH_SECS)
+                display.set_contrast(DIM if st["oled_dim"] else BRIGHT)
                 last_wash = time.time()
                 continue
             if renderer is not None:
@@ -81,12 +84,31 @@ def render_loop(display=None, max_frames=None):
 
 
 def _wash(display, frame, secs):
-    """Full-frame static for secs — clears any forming retention."""
-    noise = oled.Noise()
-    t_end = time.time() + secs
+    """Exercise EVERY pixel, multiple times, provably.
+
+    Phase 1: full-field blink — every pixel fully ON, then fully OFF,
+    repeated. Phase 2: dense full-resolution static — every pixel gets a
+    random state each frame (about half on, half off). Combined, no pixel
+    can be missed: on a 5s wash each pixel is driven fully ~4x in phase 1
+    and randomly ~45x on + ~45x off in phase 2.
+    """
+    # phase 1: full on/off blink at 2Hz (2 full cycles per second)
+    blink_end = time.time() + min(2.0, secs * 0.4)
+    n = 0
+    while time.time() < blink_end:
+        frame.clear()
+        if n % 2 == 0:
+            frame.buf[:] = b"\xff" * (oled.WIDTH * oled.PAGES)  # every px ON
+        frame.blit(display)                                      # odd = all OFF
+        time.sleep(0.25)
+        n += 1
+    # phase 2: dense random static — varied states, total coverage
+    rng = random.Random()
+    t_end = time.time() + max(0.0, secs - 2.0)
     while time.time() < t_end:
         frame.clear()
-        noise.draw(frame, time.time())
+        for i in range(len(frame.buf)):
+            frame.buf[i] = rng.randrange(256)
         frame.blit(display)
         time.sleep(FRAME_PERIOD)
 
