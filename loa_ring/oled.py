@@ -18,6 +18,8 @@ import os
 import random
 import time
 
+from . import amiga
+
 from . import topaz
 
 WIDTH = 128
@@ -529,38 +531,45 @@ class Showoff:
 class Ripperdoc:
     """The bench mode: a live status board for tuning the senses.
 
-    Each sensor gets an outline box; the box goes SOLID (label inverted) when
-    its pin is high — the OFF/ON shape Divv drew. Metrics below: trigger
-    count, seconds since last trigger. 3x5 font so a lot of indicators fit;
-    more sensors join this board as they land. draw_state() takes the cortex
+    Each sensor gets an outline box; the box goes SOLID when its pin is
+    high — the label stays bright, carved out with a 1px dark halo so it
+    reads on the fill (plain inversion dies at 8px). Metrics below: trigger
+    count, seconds since last trigger. Amiga Forever bitmap font; more
+    sensors join this board as they land. draw_state() takes the cortex
     state row so it renders live pin levels without owning hardware.
     """
 
     TITLE = "RIPPERDOC"
 
     def draw_state(self, frame, t, st):
-        frame.text3x5(2, 1, self.TITLE)
-        self._indicator(frame, 2, 12, "[PIR]", bool(st.get("pir_high")))
+        amiga.draw(frame, self.TITLE, 2, 1, size=8)
+        self._indicator(frame, 2, 12, "PIR", bool(st.get("pir_high")))
         count = st.get("sense_count") or 0
         last = st.get("sense_ts")
         age = 0.0 if not last else max(0.0, t - last)
-        frame.text3x5(2, 28, f"N{count:03d}")
-        frame.text3x5(2, 34, f"T{age:04.1f}s")
-        frame.text3x5(44, 28, "G17")
+        amiga.draw(frame, f"N{count:03d}", 2, 32, size=8)
+        amiga.draw(frame, "G17", 44, 32, size=8)
+        amiga.draw(frame, f"T{age:04.1f}s", 2, 41, size=8)
 
     def _indicator(self, frame, x, y, label, level):
-        w = len(label) * 4 + 6          # 3px padding each side
-        h = 10
+        w = amiga.width(label, 10) + 8
+        h = 16
         x1, y1 = x + w - 1, y + h - 1
         frame.line(x, y, x1, y)          # top
         frame.line(x, y1, x1, y1)        # bottom
         frame.line(x, y, x, y1)          # left
         frame.line(x1, y, x1, y1)        # right
-        ly = y + (h - 5) // 2
+        lx, ly = x + 4, y + 3
         if level:
             for yy in range(y + 1, y1):
                 for xx in range(x + 1, x1):
                     frame.px(xx, yy)
-            frame.text3x5(x + 3, ly, label, on=False)
+            # bright label with a 1px dark halo so it reads on the fill
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dx or dy:
+                        amiga.draw(frame, label, lx + dx, ly + dy,
+                                   size=10, on=False)
+            amiga.draw(frame, label, lx, ly, size=10, on=True)
         else:
-            frame.text3x5(x + 3, ly, label, on=True)
+            amiga.draw(frame, label, lx, ly, size=10, on=True)

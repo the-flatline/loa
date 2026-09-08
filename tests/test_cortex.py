@@ -248,8 +248,9 @@ check("ripperdoc solid when high", sum(on_buf) > sum(off_buf))
 fb.clear()
 rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
                           "sense_ts": 96.8})
-fb.text3x5(2, 1, rd.TITLE)
-check("3x5 font draws", sum(fb.buf) > 0)
+from loa_ring import amiga  # noqa: E402
+amiga.draw(fb, rd.TITLE, 2, 1, size=8)
+check("amiga font draws", sum(fb.buf) > 0)
 cortex.set_state({"oled_mode": "ripperdoc"})
 render_loop(max_frames=5)
 check("oled daemon renders ripperdoc", True)
