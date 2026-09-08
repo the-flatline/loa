@@ -44,6 +44,10 @@ def _connect():
             oled_mode TEXT NOT NULL DEFAULT 'scope',
             oled_text TEXT,
             oled_dim INTEGER NOT NULL DEFAULT 0,
+            ripperdoc INTEGER NOT NULL DEFAULT 0,
+            pir_high INTEGER NOT NULL DEFAULT 0,
+            sense_ts REAL,
+            sense_count INTEGER NOT NULL DEFAULT 0,
             updated_at REAL NOT NULL
         )""")
         _conn.execute("""CREATE TABLE IF NOT EXISTS events (
@@ -55,7 +59,21 @@ def _connect():
         _conn.execute(
             "INSERT OR IGNORE INTO state (id, updated_at) VALUES (1, ?)",
             (time.time(),))
+        _ensure_schema()
     return _conn
+
+
+def _ensure_schema():
+    """Migrate older state rows: add sense/ripperdoc columns if missing."""
+    cols = {r[1] for r in _conn.execute("PRAGMA table_info(state)").fetchall()}
+    for name, ddl in (
+        ("ripperdoc", "INTEGER NOT NULL DEFAULT 0"),
+        ("pir_high", "INTEGER NOT NULL DEFAULT 0"),
+        ("sense_ts", "REAL"),
+        ("sense_count", "INTEGER NOT NULL DEFAULT 0"),
+    ):
+        if name not in cols:
+            _conn.execute(f"ALTER TABLE state ADD COLUMN {name} {ddl}")
 
 
 def _row_to_state(row):
@@ -67,7 +85,11 @@ def _row_to_state(row):
         "oled_mode": row[4],
         "oled_text": row[5],
         "oled_dim": bool(row[6]),
-        "updated_at": row[7],
+        "ripperdoc": bool(row[7]),
+        "pir_high": bool(row[8]),
+        "sense_ts": row[9],
+        "sense_count": row[10],
+        "updated_at": row[11],
     }
 
 
@@ -75,7 +97,8 @@ def get_state():
     with _lock:
         row = _connect().execute(
             "SELECT ring_state, pending_event, mood, expression, oled_mode, "
-            "oled_text, oled_dim, updated_at FROM state WHERE id = 1"
+            "oled_text, oled_dim, ripperdoc, pir_high, sense_ts, sense_count, "
+            "updated_at FROM state WHERE id = 1"
         ).fetchone()
     if row is None:
         return _defaults()
@@ -86,7 +109,8 @@ def _defaults():
     return {
         "ring_state": "home", "pending_event": None, "mood": "calm",
         "expression": None, "oled_mode": "scope", "oled_text": None,
-        "oled_dim": False, "updated_at": 0.0,
+        "oled_dim": False, "ripperdoc": False, "pir_high": False,
+        "sense_ts": None, "sense_count": 0, "updated_at": 0.0,
     }
 
 
@@ -94,13 +118,15 @@ def set_state(fields):
     """Update the state row. fields: any of ring_state/pending_event/mood/
     expression/oled_mode/oled_text/oled_dim. Autocommit per statement."""
     allowed = {"ring_state", "pending_event", "mood", "expression",
-               "oled_mode", "oled_text", "oled_dim"}
+               "oled_mode", "oled_text", "oled_dim", "ripperdoc",
+               "pir_high", "sense_ts", "sense_count"}
+    int_fields = {"oled_dim", "ripperdoc", "pir_high", "sense_count"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
         return
     sets = ", ".join(f"{k} = ?" for k in fields)
-    values = [int(fields["oled_dim"]) if k == "oled_dim"
-              else fields[k] for k in fields]
+    values = [int(fields[k]) if k in int_fields else fields[k]
+              for k in fields]
     with _lock:
         _connect().execute(
             f"UPDATE state SET {sets}, updated_at = ? WHERE id = 1",

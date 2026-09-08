@@ -74,7 +74,10 @@ def alarm(ring):
 
 def one_scan(ring):
     dither = DitheredFrame(anim.LED_COUNT)
-    for frame in anim.scan_frames(fps=FPS):
+    # ripperdoc bench mode: snappier lap so the reaction reads instantly
+    st = cortex.get_state()
+    lap, fade = (0.9, 0.3) if st.get("ripperdoc") else (1.6, 0.5)
+    for frame in anim.scan_frames(lap_s=lap, fade_s=fade, fps=FPS):
         st = cortex.get_state()
         if st["ring_state"] != "home":
             return

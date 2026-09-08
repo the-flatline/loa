@@ -43,8 +43,11 @@ brain (dixie) ──HTTP──> loa-api (FastAPI, :8765) ──> cortex.db (SQLi
   rising edge, cooldown; motion fires a scan event + logs `sense` history.
   The sonar and the weather board join this daemon as they land.
 - **loa-oled** — owns the face (SPI0). Modes: `scope` (the flatline —
-  default), `ecg`, `ripple`, `noise`, `text` (marquee), `off`. `dim` drops
-  panel contrast (asleep).
+  default), `ecg`, `ripple`, `noise`, `text` (marquee), `ripperdoc`,
+  `off`. `dim` drops
+  panel contrast (asleep). `ripperdoc` is the bench board: [PIR] outline
+  box that goes solid while the pin is high, plus trigger count / age — for
+  tuning the senses.
 - **loa-api** — the door. Pure intent, no hardware: runs anywhere.
 
 ## API
@@ -57,6 +60,7 @@ brain (dixie) ──HTTP──> loa-api (FastAPI, :8765) ──> cortex.db (SQLi
 | `POST /express` | `{"expression": "happy"}` or `{"expression":"custom","text":"..."}` | face says something |
 | `POST /ring` | `{"state": "scan"}` | direct ring: home/busy/alarm, scan/glitch events |
 | `POST /display` | `{"mode": "ecg", "dim": true}` | direct face control |
+| `POST /ripperdoc` | `{"on": true}` | bench mode: face becomes live sense status board |
 
 ### Feelings (moods)
 

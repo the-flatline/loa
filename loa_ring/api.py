@@ -11,6 +11,7 @@ means it runs anywhere: dixie, tests, the Pi.
   POST /express           — {expression, text?} put something on the face
   POST /ring              — {state} direct ring control (scan/glitch events)
   POST /display           — {mode, text?, dim?} direct face control
+  POST /ripperdoc         — {on} bench mode: live sense status board on the face
 
 Security: bind to the tailnet and let ice's firewall be the gate. No auth
 here; the network is the boundary.
@@ -54,9 +55,13 @@ class RingRequest(BaseModel):
 
 
 class DisplayRequest(BaseModel):
-    mode: str = Field(..., description="scope|ecg|ripple|noise|text|showoff|off")
+    mode: str = Field(..., description="scope|ecg|ripple|noise|text|showoff|ripperdoc|off")
     text: str | None = None
     dim: bool | None = None
+
+
+class RipperdocRequest(BaseModel):
+    on: bool = Field(..., description="bench mode: face becomes a live sense status board")
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +123,12 @@ def _full_state(history_n=0):
             "dim": st["oled_dim"],
         },
         "sensors": _sensors_state(),
+        "ripperdoc": st["ripperdoc"],
+        "sense": {
+            "pir_high": st["pir_high"],
+            "count": st["sense_count"],
+            "last_ts": st["sense_ts"],
+        },
         "system": _system_state(),
         "history": cortex.history(history_n) if history_n > 0 else [],
     }
@@ -196,9 +207,10 @@ def ring(req: RingRequest):
 
 @app.post("/display")
 def display(req: DisplayRequest):
-    if req.mode not in ("scope", "ecg", "ripple", "noise", "text", "showoff", "off"):
+    if req.mode not in ("scope", "ecg", "ripple", "noise", "text", "showoff",
+                        "ripperdoc", "off"):
         raise HTTPException(
-            400, "mode must be scope|ecg|ripple|noise|text|off")
+            400, "mode must be scope|ecg|ripple|noise|text|showoff|ripperdoc|off")
     cortex.set_state({
         "oled_mode": req.mode,
         "oled_text": req.text if req.mode == "text" else None,
@@ -210,6 +222,16 @@ def display(req: DisplayRequest):
     return {"ok": True, "oled": {"mode": st["oled_mode"],
                                  "text": st["oled_text"],
                                  "dim": st["oled_dim"]}}
+
+
+@app.post("/ripperdoc")
+def ripperdoc(req: RipperdocRequest):
+    on = bool(req.on)
+    cortex.set_state({"ripperdoc": 1 if on else 0,
+                      "oled_mode": "ripperdoc" if on else "scope"})
+    cortex.log_event("ripperdoc", {"on": on})
+    return {"ok": True, "ripperdoc": on,
+            "oled": cortex.get_state()["oled_mode"]}
 
 
 # ---------------------------------------------------------------------------

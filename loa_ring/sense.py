@@ -65,8 +65,13 @@ class SensePoller:
         self._last_fire = 0.0
 
     def _default_fire(self):
+        now = time.time()
+        st = cortex.get_state()
+        n = (st.get("sense_count") or 0) + 1
+        cortex.set_state({"sense_ts": now, "sense_count": n})
         cortex.log_event("sense", {"kind": "pir", "gpio": self.gpio,
-                                   "action": "motion"})
+                                   "action": "motion", "count": n,
+                                   "cooldown": self.cooldown})
         moods.apply_ring(cortex, "scan")
 
     def tick(self):
@@ -76,6 +81,8 @@ class SensePoller:
             self._pending = 0
             return
         now = time.time()
+        if level != self._last:
+            cortex.set_state({"pir_high": int(level)})
         if level:
             self._pending = 1 if not self._last else self._pending + 1
             if (self._pending >= 2

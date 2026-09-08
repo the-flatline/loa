@@ -23,6 +23,7 @@ MODE_CLASSES = {
     "noise": oled.Noise,
     "text": lambda text=None: oled.Marquee(text or "LOA"),
     "showoff": oled.Showoff,
+    "ripperdoc": oled.Ripperdoc,
 }
 
 BRIGHT = 0xCF
@@ -72,7 +73,10 @@ def render_loop(display=None, max_frames=None):
                 if hasattr(renderer, "tick"):
                     renderer.tick(dt)
                 frame.clear()
-                renderer.draw(frame, now)
+                if hasattr(renderer, "draw_state"):
+                    renderer.draw_state(frame, now, st)
+                else:
+                    renderer.draw(frame, now)
                 frame.blit(display)
             frames += 1
             time.sleep(FRAME_PERIOD)

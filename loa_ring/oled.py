@@ -80,6 +80,21 @@ class Frame:
     def text_width(self, s):
         return len(s) * 6
 
+    def text3x5(self, x, y, s, on=True):
+        """3x5 bitmap text, uppercase, 4px advance — status-board density."""
+        s = s.upper()
+        for ch in s:
+            glyph = FONT3X5.get(ch, FONT3X5[" "])
+            for cx in range(3):
+                col = glyph[cx]
+                for cy in range(5):
+                    if col & (1 << cy):
+                        self.px(x + cx, y + cy, on)
+            x += 4
+
+    def text3x5_width(self, s):
+        return len(s) * 4
+
     def blit(self, display, offset=None):
         display.show(self.buf, offset)
 
@@ -155,6 +170,67 @@ FONT = {
     "`": (0x04, 0x02, 0x00, 0x00, 0x00),
     "|": (0x04, 0x04, 0x04, 0x04, 0x04),
     "~": (0x0A, 0x15, 0x00, 0x00, 0x00),
+}
+
+# ---------------------------------------------------------------------------
+# 3x5 font — status-board density (rows of 3px, bit set = lit).
+# Raw rows: 5 strings of 3 chars; parsed to 3 column bitmasks (bit0 = top).
+
+FONT3X5_RAW = {
+    " ": ("000", "000", "000", "000", "000"),
+    "!": ("010", "010", "010", "000", "010"),
+    ".": ("000", "000", "000", "000", "010"),
+    ",": ("000", "000", "000", "010", "100"),
+    ":": ("000", "010", "000", "010", "000"),
+    "-": ("000", "000", "111", "000", "000"),
+    "=": ("000", "111", "000", "111", "000"),
+    "/": ("001", "001", "010", "100", "100"),
+    "[": ("011", "010", "010", "010", "011"),
+    "]": ("110", "010", "010", "010", "110"),
+    "0": ("011", "101", "101", "101", "110"),
+    "1": ("010", "110", "010", "010", "111"),
+    "2": ("110", "001", "010", "100", "111"),
+    "3": ("110", "001", "110", "001", "110"),
+    "4": ("101", "101", "111", "001", "001"),
+    "5": ("111", "100", "110", "001", "110"),
+    "6": ("011", "100", "110", "101", "110"),
+    "7": ("111", "001", "010", "010", "010"),
+    "8": ("110", "101", "110", "101", "110"),
+    "9": ("011", "101", "011", "001", "110"),
+    "A": ("010", "101", "111", "101", "101"),
+    "B": ("110", "101", "110", "101", "110"),
+    "C": ("011", "100", "100", "100", "011"),
+    "D": ("110", "101", "101", "101", "110"),
+    "E": ("111", "100", "110", "100", "111"),
+    "F": ("111", "100", "110", "100", "100"),
+    "G": ("011", "100", "101", "101", "011"),
+    "H": ("101", "101", "111", "101", "101"),
+    "I": ("111", "010", "010", "010", "111"),
+    "J": ("001", "001", "001", "101", "010"),
+    "K": ("101", "110", "100", "110", "101"),
+    "L": ("100", "100", "100", "100", "111"),
+    "M": ("101", "111", "111", "101", "101"),
+    "N": ("101", "111", "101", "101", "101"),
+    "O": ("010", "101", "101", "101", "010"),
+    "P": ("110", "101", "110", "100", "100"),
+    "Q": ("011", "101", "101", "101", "001"),
+    "R": ("110", "101", "110", "101", "101"),
+    "S": ("011", "100", "010", "001", "110"),
+    "T": ("111", "010", "010", "010", "010"),
+    "U": ("101", "101", "101", "101", "010"),
+    "V": ("101", "101", "101", "010", "010"),
+    "W": ("101", "101", "111", "111", "101"),
+    "X": ("101", "010", "010", "010", "101"),
+    "Y": ("101", "101", "010", "010", "010"),
+    "Z": ("111", "001", "010", "100", "111"),
+}
+
+FONT3X5 = {
+    ch: tuple(
+        sum((1 << r) for r in range(5) if rows[r][c] == "1")
+        for c in range(3)
+    )
+    for ch, rows in FONT3X5_RAW.items()
 }
 
 
@@ -448,3 +524,43 @@ class Showoff:
             for x in range(WIDTH):
                 frame.buf[band_page * WIDTH + x] = \
                     base[band_page * WIDTH + (x - shift) % WIDTH]
+
+
+class Ripperdoc:
+    """The bench mode: a live status board for tuning the senses.
+
+    Each sensor gets an outline box; the box goes SOLID (label inverted) when
+    its pin is high — the OFF/ON shape Divv drew. Metrics below: trigger
+    count, seconds since last trigger. 3x5 font so a lot of indicators fit;
+    more sensors join this board as they land. draw_state() takes the cortex
+    state row so it renders live pin levels without owning hardware.
+    """
+
+    TITLE = "RIPPERDOC"
+
+    def draw_state(self, frame, t, st):
+        frame.text3x5(2, 1, self.TITLE)
+        self._indicator(frame, 2, 12, "[PIR]", bool(st.get("pir_high")))
+        count = st.get("sense_count") or 0
+        last = st.get("sense_ts")
+        age = 0.0 if not last else max(0.0, t - last)
+        frame.text3x5(2, 28, f"N{count:03d}")
+        frame.text3x5(2, 34, f"T{age:04.1f}s")
+        frame.text3x5(44, 28, "G17")
+
+    def _indicator(self, frame, x, y, label, level):
+        w = len(label) * 4 + 6          # 3px padding each side
+        h = 10
+        x1, y1 = x + w - 1, y + h - 1
+        frame.line(x, y, x1, y)          # top
+        frame.line(x, y1, x1, y1)        # bottom
+        frame.line(x, y, x, y1)          # left
+        frame.line(x1, y, x1, y1)        # right
+        ly = y + (h - 5) // 2
+        if level:
+            for yy in range(y + 1, y1):
+                for xx in range(x + 1, x1):
+                    frame.px(xx, yy)
+            frame.text3x5(x + 3, ly, label, on=False)
+        else:
+            frame.text3x5(x + 3, ly, label, on=True)

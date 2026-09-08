@@ -218,4 +218,41 @@ check("sense motion sets scan event",
 check("sense motion logged",
       any(e["kind"] == "sense" for e in cortex.history(5)))
 
+print("== ripperdoc mode ==")
+
+r = c.post("/ripperdoc", json={"on": True})
+check("ripperdoc on", r.status_code == 200 and r.json()["ripperdoc"] is True
+      and cortex.get_state()["ripperdoc"] is True
+      and cortex.get_state()["oled_mode"] == "ripperdoc")
+r = c.get("/state")
+check("state reports ripperdoc + sense",
+      r.json()["ripperdoc"] is True and "sense" in r.json())
+r = c.post("/ripperdoc", json={"on": False})
+check("ripperdoc off restores scope",
+      r.status_code == 200 and cortex.get_state()["oled_mode"] == "scope"
+      and cortex.get_state()["ripperdoc"] is False)
+
+print("== ripperdoc face (no hardware) ==")
+
+fb.clear()
+rd = oled.Ripperdoc()
+rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 0,
+                          "sense_ts": None})
+off_buf = bytes(fb.buf)
+check("ripperdoc outline draws", sum(off_buf) > 0)
+fb.clear()
+rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
+                          "sense_ts": 96.8})
+on_buf = bytes(fb.buf)
+check("ripperdoc solid when high", sum(on_buf) > sum(off_buf))
+fb.clear()
+rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
+                          "sense_ts": 96.8})
+fb.text3x5(2, 1, rd.TITLE)
+check("3x5 font draws", sum(fb.buf) > 0)
+cortex.set_state({"oled_mode": "ripperdoc"})
+render_loop(max_frames=5)
+check("oled daemon renders ripperdoc", True)
+cortex.set_state({"oled_mode": "scope"})
+
 print(f"\nALL {PASS} CHECKS PASSED")
