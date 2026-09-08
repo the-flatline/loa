@@ -113,6 +113,12 @@ def main():
     cortex.log_event("boot", {"svc": "sense", "gpio": gpio,
                               "cooldown": cooldown})
     set_input(gpio)
+    # sync the light with the pin at boot — a stuck/stale state must not
+    # survive a reboot (jumper fiddling can leave the module latched high)
+    level = pinctrl_reader(gpio)
+    if level is not None:
+        cortex.set_state({"pir_high": int(level),
+                          "pir_on_ts": time.time() if level else None})
     SensePoller(gpio=gpio, cooldown=cooldown).run()
 
 

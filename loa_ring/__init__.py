@@ -7,7 +7,7 @@ API (api): the FastAPI door the brain talks to.
 Daemons (presence: ring; oled_daemon: face).
 """
 
-__version__ = "0.5.4"
+__version__ = "0.5.5"
 
 from .ring import Ring
 from . import animations
