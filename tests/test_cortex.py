@@ -231,6 +231,15 @@ r = c.post("/ripperdoc", json={"on": False})
 check("ripperdoc off restores scope",
       r.status_code == 200 and cortex.get_state()["oled_mode"] == "scope"
       and cortex.get_state()["ripperdoc"] is False)
+r = c.post("/ripperdoc", json={"page": "pir"})
+check("ripperdoc page switch",
+      r.status_code == 200 and r.json()["page"] == "pir"
+      and cortex.get_state()["ripperdoc_page"] == "pir")
+r = c.post("/ripperdoc", json={"page": "bogus"})
+check("bad ripperdoc page 400", r.status_code == 400)
+r = c.post("/ripperdoc", json={"page": "sensors"})
+check("ripperdoc back to sensors", r.status_code == 200
+      and cortex.get_state()["ripperdoc_page"] == "sensors")
 
 print("== ripperdoc face (no hardware) ==")
 
@@ -247,10 +256,14 @@ on_buf = bytes(fb.buf)
 check("ripperdoc solid when high", sum(on_buf) > sum(off_buf))
 fb.clear()
 rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
-                          "sense_ts": 96.8})
+                          "sense_ts": 96.8, "ripperdoc_page": "sensors"})
 from loa_ring import amiga  # noqa: E402
 amiga.draw(fb, rd.TITLE, 2, 1, size=8)
 check("amiga font draws", sum(fb.buf) > 0)
+fb.clear()
+rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
+                          "sense_ts": 96.8, "ripperdoc_page": "pir"})
+check("ripperdoc pir page draws", sum(fb.buf) > 0)
 cortex.set_state({"oled_mode": "ripperdoc"})
 render_loop(max_frames=5)
 check("oled daemon renders ripperdoc", True)

@@ -529,47 +529,63 @@ class Showoff:
 
 
 class Ripperdoc:
-    """The bench mode: a live status board for tuning the senses.
+    """The bench mode: paginated live status boards for tuning the senses.
 
-    Each sensor gets an outline box; the box goes SOLID when its pin is
-    high — the label stays bright, carved out with a 1px dark halo so it
-    reads on the fill (plain inversion dies at 8px). Metrics below: trigger
-    count, seconds since last trigger. Amiga Forever bitmap font; more
-    sensors join this board as they land. draw_state() takes the cortex
-    state row so it renders live pin levels without owning hardware.
+    PAGES is the component registry — each page is one board layout; the
+    API switches pages by name (POST /ripperdoc {"page": "pir"}). Nothing
+    ever fits on one 128x64 screen, so pages are the answer.
+
+    Indicator: an outline box, label lit when the pin is low; when the pin
+    goes high the centre fills and the label is knocked out (unlit) — the
+    OFF/ON shape Divv drew. Amiga Forever 8px everywhere, dense.
     """
 
     TITLE = "RIPPERDOC"
+    PAGES = ("sensors", "pir")
 
     def draw_state(self, frame, t, st):
+        page = st.get("ripperdoc_page", "sensors")
+        if page == "pir":
+            self._page_pir(frame, t, st)
+        else:
+            self._page_sensors(frame, t, st)
+
+    def _page_sensors(self, frame, t, st):
         amiga.draw(frame, self.TITLE, 2, 1, size=8)
+        amiga.draw(frame, "1/2", 99, 1, size=8)
         self._indicator(frame, 2, 12, "PIR", bool(st.get("pir_high")))
+        self._indicator(frame, 39, 12, "SR04", False)
+        self._indicator(frame, 85, 12, "TMP", False)
+        self._indicator(frame, 2, 26, "BAR", False)
+        count = st.get("sense_count") or 0
+        amiga.draw(frame, f"N{count:03d}", 2, 40, size=8)
+        amiga.draw(frame, "G17", 44, 40, size=8)
+
+    def _page_pir(self, frame, t, st):
+        amiga.draw(frame, "PIR", 2, 1, size=8)
+        amiga.draw(frame, "2/2", 99, 1, size=8)
         count = st.get("sense_count") or 0
         last = st.get("sense_ts")
         age = 0.0 if not last else max(0.0, t - last)
-        amiga.draw(frame, f"N{count:03d}", 2, 32, size=8)
-        amiga.draw(frame, "G17", 44, 32, size=8)
-        amiga.draw(frame, f"T{age:04.1f}s", 2, 41, size=8)
+        amiga.draw(frame, f"N{count:03d}", 2, 14, size=8)
+        amiga.draw(frame, f"T{age:04.1f}s", 2, 23, size=8)
+        lt = "--:--:--" if not last else \
+            time.strftime("%H:%M:%S", time.localtime(last))
+        amiga.draw(frame, f"L{lt}", 2, 32, size=8)
 
     def _indicator(self, frame, x, y, label, level):
-        w = amiga.width(label, 10) + 8
-        h = 16
+        w = amiga.width(label, 8) + 8
+        h = 12
         x1, y1 = x + w - 1, y + h - 1
         frame.line(x, y, x1, y)          # top
         frame.line(x, y1, x1, y1)        # bottom
         frame.line(x, y, x, y1)          # left
         frame.line(x1, y, x1, y1)        # right
-        lx, ly = x + 4, y + 3
+        lx, ly = x + 4, y + 2
         if level:
             for yy in range(y + 1, y1):
                 for xx in range(x + 1, x1):
                     frame.px(xx, yy)
-            # bright label with a 1px dark halo so it reads on the fill
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    if dx or dy:
-                        amiga.draw(frame, label, lx + dx, ly + dy,
-                                   size=10, on=False)
-            amiga.draw(frame, label, lx, ly, size=10, on=True)
+            amiga.draw(frame, label, lx, ly, size=8, on=False)
         else:
-            amiga.draw(frame, label, lx, ly, size=10, on=True)
+            amiga.draw(frame, label, lx, ly, size=8, on=True)

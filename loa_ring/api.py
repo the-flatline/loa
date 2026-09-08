@@ -27,6 +27,7 @@ from . import __version__
 from . import cortex
 from . import expressions as expr
 from . import moods
+from . import oled
 
 DEFAULT_PORT = 8765
 
@@ -61,7 +62,8 @@ class DisplayRequest(BaseModel):
 
 
 class RipperdocRequest(BaseModel):
-    on: bool = Field(..., description="bench mode: face becomes a live sense status board")
+    on: bool | None = Field(None, description="bench mode on/off")
+    page: str | None = Field(None, description="sensors|pir — which board page")
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +126,7 @@ def _full_state(history_n=0):
         },
         "sensors": _sensors_state(),
         "ripperdoc": st["ripperdoc"],
+        "ripperdoc_page": st["ripperdoc_page"],
         "sense": {
             "pir_high": st["pir_high"],
             "count": st["sense_count"],
@@ -226,12 +229,23 @@ def display(req: DisplayRequest):
 
 @app.post("/ripperdoc")
 def ripperdoc(req: RipperdocRequest):
-    on = bool(req.on)
-    cortex.set_state({"ripperdoc": 1 if on else 0,
-                      "oled_mode": "ripperdoc" if on else "scope"})
-    cortex.log_event("ripperdoc", {"on": on})
-    return {"ok": True, "ripperdoc": on,
-            "oled": cortex.get_state()["oled_mode"]}
+    fields = {}
+    if req.page is not None:
+        if req.page not in oled.Ripperdoc.PAGES:
+            raise HTTPException(400, f"page must be {'|'.join(oled.Ripperdoc.PAGES)}")
+        fields["ripperdoc_page"] = req.page
+    if req.on is not None:
+        fields["ripperdoc"] = 1 if req.on else 0
+        fields["oled_mode"] = "ripperdoc" if req.on else "scope"
+    if fields:
+        cortex.set_state(fields)
+        if "ripperdoc" in fields:
+            cortex.log_event("ripperdoc", {"on": req.on,
+                                           "page": fields.get("ripperdoc_page",
+                                                              cortex.get_state()["ripperdoc_page"])})
+    st = cortex.get_state()
+    return {"ok": True, "ripperdoc": st["ripperdoc"],
+            "page": st["ripperdoc_page"], "oled": st["oled_mode"]}
 
 
 # ---------------------------------------------------------------------------
