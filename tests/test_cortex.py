@@ -218,6 +218,19 @@ check("sense motion sets scan event",
 check("sense motion logged",
       any(e["kind"] == "sense" for e in cortex.history(5)))
 
+# stopwatch: rising edge starts pir_on_ts, falling edge latches hold
+cortex.set_state({"pir_high": 0, "pir_on_ts": None, "pir_last_hold": 0.0})
+p5 = sense_mod.SensePoller(gpio=17, cooldown=0.0,
+                           reader=FakeReader([False, True, True, False]))
+p5.tick(); p5.tick(); p5.tick()
+st = cortex.get_state()
+check("sense rising edge starts timer", st["pir_high"] is True
+      and st["pir_on_ts"] is not None)
+p5.tick()
+st = cortex.get_state()
+check("sense falling edge latches hold", st["pir_high"] is False
+      and st["pir_on_ts"] is None and st["pir_last_hold"] >= 0.0)
+
 print("== ripperdoc mode ==")
 
 r = c.post("/ripperdoc", json={"on": True})

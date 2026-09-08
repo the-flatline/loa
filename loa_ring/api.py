@@ -131,6 +131,7 @@ def _full_state(history_n=0):
             "pir_high": st["pir_high"],
             "count": st["sense_count"],
             "last_ts": st["sense_ts"],
+            "last_hold": st["pir_last_hold"],
         },
         "system": _system_state(),
         "history": cortex.history(history_n) if history_n > 0 else [],

@@ -82,7 +82,14 @@ class SensePoller:
             return
         now = time.time()
         if level != self._last:
-            cortex.set_state({"pir_high": int(level)})
+            if level:
+                cortex.set_state({"pir_high": 1, "pir_on_ts": now})
+            else:
+                st = cortex.get_state()
+                on_ts = st.get("pir_on_ts")
+                hold = 0.0 if on_ts is None else now - on_ts
+                cortex.set_state({"pir_high": 0, "pir_last_hold": hold,
+                                  "pir_on_ts": None})
         if level:
             self._pending = 1 if not self._last else self._pending + 1
             if (self._pending >= 2

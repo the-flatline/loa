@@ -48,6 +48,8 @@ def _connect():
             pir_high INTEGER NOT NULL DEFAULT 0,
             sense_ts REAL,
             sense_count INTEGER NOT NULL DEFAULT 0,
+            pir_on_ts REAL,
+            pir_last_hold REAL NOT NULL DEFAULT 0,
             ripperdoc_page TEXT NOT NULL DEFAULT 'sensors',
             updated_at REAL NOT NULL
         )""")
@@ -72,6 +74,8 @@ def _ensure_schema():
         ("pir_high", "INTEGER NOT NULL DEFAULT 0"),
         ("sense_ts", "REAL"),
         ("sense_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("pir_on_ts", "REAL"),
+        ("pir_last_hold", "REAL NOT NULL DEFAULT 0"),
         ("ripperdoc_page", "TEXT NOT NULL DEFAULT 'sensors'"),
     ):
         if name not in cols:
@@ -91,8 +95,10 @@ def _row_to_state(row):
         "pir_high": bool(row[8]),
         "sense_ts": row[9],
         "sense_count": row[10],
-        "ripperdoc_page": row[11],
-        "updated_at": row[12],
+        "pir_on_ts": row[11],
+        "pir_last_hold": row[12],
+        "ripperdoc_page": row[13],
+        "updated_at": row[14],
     }
 
 
@@ -101,7 +107,7 @@ def get_state():
         row = _connect().execute(
             "SELECT ring_state, pending_event, mood, expression, oled_mode, "
             "oled_text, oled_dim, ripperdoc, pir_high, sense_ts, sense_count, "
-            "ripperdoc_page, updated_at FROM state WHERE id = 1"
+            "pir_on_ts, pir_last_hold, ripperdoc_page, updated_at FROM state WHERE id = 1"
         ).fetchone()
     if row is None:
         return _defaults()
@@ -113,7 +119,8 @@ def _defaults():
         "ring_state": "home", "pending_event": None, "mood": "calm",
         "expression": None, "oled_mode": "scope", "oled_text": None,
         "oled_dim": False, "ripperdoc": False, "pir_high": False,
-        "sense_ts": None, "sense_count": 0, "ripperdoc_page": "sensors",
+        "sense_ts": None, "sense_count": 0, "pir_on_ts": None,
+        "pir_last_hold": 0.0, "ripperdoc_page": "sensors",
         "updated_at": 0.0,
     }
 
@@ -123,7 +130,8 @@ def set_state(fields):
     expression/oled_mode/oled_text/oled_dim. Autocommit per statement."""
     allowed = {"ring_state", "pending_event", "mood", "expression",
                "oled_mode", "oled_text", "oled_dim", "ripperdoc",
-               "pir_high", "sense_ts", "sense_count", "ripperdoc_page"}
+               "pir_high", "sense_ts", "sense_count", "ripperdoc_page",
+               "pir_on_ts", "pir_last_hold"}
     int_fields = {"oled_dim", "ripperdoc", "pir_high", "sense_count"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:

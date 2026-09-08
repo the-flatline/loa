@@ -569,7 +569,11 @@ class Ripperdoc:
         last = st.get("sense_ts")
         age = 0.0 if not last else max(0.0, t - last)
         amiga.draw(frame, f"N{count:03d}", 2, 28, size=8)
-        amiga.draw(frame, f"T{age:04.1f}s", 2, 37, size=8)
+        if st.get("pir_high"):
+            hold = t - (st.get("pir_on_ts") or t)
+        else:
+            hold = st.get("pir_last_hold") or 0.0
+        amiga.draw(frame, f"T{hold:04.1f}s", 2, 37, size=8)
         lt = "--:--:--" if not last else \
             time.strftime("%H:%M:%S", time.localtime(last))
         amiga.draw(frame, f"L{lt}", 2, 46, size=8)
