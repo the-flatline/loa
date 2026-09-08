@@ -18,7 +18,8 @@ PY=/home/flatline/venv/bin/python
 if command -v uv >/dev/null 2>&1; then
   uv pip install --python "$PY" "git+https://github.com/the-flatline/loa-ring.git@main[api]"
 else
-  "$PY" -m pip install "git+https://github.com/the-flatline/loa-ring.git@main[api]"
+  # #egg= extras form: works on older pip (pre-21.3) that mis-parses @main[api]
+  "$PY" -m pip install "git+https://github.com/the-flatline/loa-ring.git@main#egg=loa-ring[api]"
 fi
 
 echo "== installing services =="
