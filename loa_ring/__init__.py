@@ -7,13 +7,14 @@ API (api): the FastAPI door the brain talks to.
 Daemons (presence: ring; oled_daemon: face).
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 from .ring import Ring
 from . import animations
 from . import cortex
 from . import control
 from . import presence
+from . import sense
 from . import oled
 from . import oled_daemon
 from . import moods
@@ -21,6 +22,6 @@ from . import expressions
 from . import api
 
 __all__ = [
-    "Ring", "animations", "cortex", "control", "presence", "oled",
+    "Ring", "animations", "cortex", "control", "presence", "sense", "oled",
     "oled_daemon", "moods", "expressions", "api",
 ]

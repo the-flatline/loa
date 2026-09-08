@@ -22,9 +22,9 @@ else
 fi
 
 echo "== installing services =="
-sudo cp deploy/loa-presence.service deploy/loa-oled.service deploy/loa-api.service /etc/systemd/system/
+sudo cp deploy/loa-presence.service deploy/loa-sense.service deploy/loa-oled.service deploy/loa-api.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now loa-presence loa-oled loa-api
+sudo systemctl enable --now loa-presence loa-sense loa-oled loa-api
 
 echo "== done. sanity check: =="
 curl -sf http://127.0.0.1:8765/health && echo

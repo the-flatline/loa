@@ -39,6 +39,9 @@ brain (dixie) ──HTTP──> loa-api (FastAPI, :8765) ──> cortex.db (SQLi
 - **loa-presence** — owns the ring (SPI1). Sustained states
   (home/busy/alarm) + one-shot events (scan/glitch), priority
   alarm > busy > event > home.
+- **loa-sense** — owns the inputs (GPIO). v1: PIR on GPIO17, debounced
+  rising edge, cooldown; motion fires a scan event + logs `sense` history.
+  The sonar and the weather board join this daemon as they land.
 - **loa-oled** — owns the face (SPI0). Modes: `scope` (the flatline —
   default), `ecg`, `ripple`, `noise`, `text` (marquee), `off`. `dim` drops
   panel contrast (asleep).
@@ -79,11 +82,11 @@ pip install "spidev>=3.5"
 pip install "git+https://github.com/the-flatline/loa-ring.git@main[api]"
 ```
 
-Services (see `deploy/`): `loa-presence.service`, `loa-oled.service`,
-`loa-api.service`. The cortex replaces the old flag-file door — stop
-`loa-ctl.service` (old) and `rm /tmp/loa_*` flags on deploy, then enable the
-three new units. `loa-api` binds 0.0.0.0:8765; ice's firewall is the gate
-(dixie -> loa:8765 only), DNS-first via `loa.zendient.com`.
+Services (see `deploy/`): `loa-presence.service`, `loa-sense.service`,
+`loa-oled.service`, `loa-api.service`. The cortex replaces the old flag-file
+door — stop `loa-ctl.service` (old) and `rm /tmp/loa_*` flags on deploy, then
+enable the four new units. `loa-api` binds 0.0.0.0:8765; ice's firewall is
+the gate (dixie -> loa:8765 only), DNS-first via `loa.zendient.com`.
 
 ## Use (library)
 

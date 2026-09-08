@@ -177,4 +177,45 @@ cortex.set_state({"ring_state": "home"})
 t.join(timeout=3)
 check("alarm loop exits on state change", not t.is_alive())
 
+print("== sense daemon (fake reader) ==\n")
+
+from loa_ring import sense as sense_mod  # noqa: E402
+
+
+class FakeReader:
+    def __init__(self, levels):
+        self.levels = list(levels)
+        self.i = 0
+
+    def __call__(self, gpio):
+        v = self.levels[min(self.i, len(self.levels) - 1)]
+        self.i += 1
+        return v
+
+
+fired = []
+p = sense_mod.SensePoller(gpio=17, cooldown=0.0,
+                          reader=FakeReader([False, True, True]),
+                          fire=lambda: fired.append("motion"))
+p.tick(); p.tick(); p.tick()
+check("sense fires on debounced rising edge", fired == ["motion"])
+
+fired.clear()
+p2 = sense_mod.SensePoller(gpio=17, cooldown=10.0,
+                           reader=FakeReader([False, True, True, False, True, True]),
+                           fire=lambda: fired.append("motion"))
+for _ in range(6):
+    p2.tick()
+check("sense cooldown suppresses refire", fired == ["motion"])
+
+# default fire path: writes cortex state + event
+cortex.set_state({"ring_state": "home", "pending_event": None})
+p3 = sense_mod.SensePoller(gpio=17, cooldown=0.0,
+                           reader=FakeReader([False, True, True]))
+p3.tick(); p3.tick(); p3.tick()
+check("sense motion sets scan event",
+      cortex.get_state()["pending_event"] == "scan")
+check("sense motion logged",
+      any(e["kind"] == "sense" for e in cortex.history(5)))
+
 print(f"\nALL {PASS} CHECKS PASSED")
