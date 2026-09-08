@@ -564,14 +564,15 @@ class Ripperdoc:
     def _page_pir(self, frame, t, st):
         amiga.draw(frame, "PIR", 2, 1, size=8)
         amiga.draw(frame, "2/2", 99, 1, size=8)
+        self._indicator(frame, 2, 12, "PIR", bool(st.get("pir_high")))
         count = st.get("sense_count") or 0
         last = st.get("sense_ts")
         age = 0.0 if not last else max(0.0, t - last)
-        amiga.draw(frame, f"N{count:03d}", 2, 14, size=8)
-        amiga.draw(frame, f"T{age:04.1f}s", 2, 23, size=8)
+        amiga.draw(frame, f"N{count:03d}", 2, 28, size=8)
+        amiga.draw(frame, f"T{age:04.1f}s", 2, 37, size=8)
         lt = "--:--:--" if not last else \
             time.strftime("%H:%M:%S", time.localtime(last))
-        amiga.draw(frame, f"L{lt}", 2, 32, size=8)
+        amiga.draw(frame, f"L{lt}", 2, 46, size=8)
 
     def _indicator(self, frame, x, y, label, level):
         w = amiga.width(label, 8) + 8

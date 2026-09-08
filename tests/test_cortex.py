@@ -264,6 +264,15 @@ fb.clear()
 rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
                           "sense_ts": 96.8, "ripperdoc_page": "pir"})
 check("ripperdoc pir page draws", sum(fb.buf) > 0)
+fb.clear()
+rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
+                          "sense_ts": 96.8, "ripperdoc_page": "pir"})
+pir_off = bytes(fb.buf)
+fb.clear()
+rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
+                          "sense_ts": 96.8, "ripperdoc_page": "pir"})
+pir_on = bytes(fb.buf)
+check("pir detail page shows the light", sum(pir_on) > sum(pir_off))
 cortex.set_state({"oled_mode": "ripperdoc"})
 render_loop(max_frames=5)
 check("oled daemon renders ripperdoc", True)
