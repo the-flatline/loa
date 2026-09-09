@@ -82,17 +82,16 @@ def _px(frame, x, y):
     return bool(frame.buf[(y // 8) * oled.WIDTH + x] & (1 << (y % 8)))
 
 
-def oled_art(frame, out_w=128):
-    """128x64 framebuffer -> half-block art. One cell = 1x2 pixels (▀▄█).
+def oled_art(frame):
+    """128x64 framebuffer -> half-block art, HARD-LOCKED to the matrix.
 
-    out_w=128 is pixel-perfect horizontally (labels stay legible). A 2px
-    horizontal squeeze mushes the 8px bitmap font into blobs — don't.
+    One cell = 1x2 pixels: 128 cols x 32 rows. No scaling — the twin is the
+    panel. Resize the terminal to fit, not the art.
     """
-    step = max(1, oled.WIDTH // out_w)
     lines = []
     for y in range(0, 64, 2):
         row = []
-        for x in range(0, oled.WIDTH, step):
+        for x in range(0, oled.WIDTH):
             t = _px(frame, x, y)
             b = _px(frame, x, y + 1) if y + 1 < 64 else False
             row.append("█" if t and b else "▀" if t else "▄" if b else " ")
@@ -112,14 +111,18 @@ def _led_positions(r=7, cx=19, cy=9):
 
 
 def ring_art(frame):
-    """Ring frame (list of RGB float tuples) -> ANSI truecolour blocks."""
+    """Ring frame (list of RGB float tuples) -> Textual markup blocks.
+
+    Markup, not raw ANSI, so colours honour the terminal's real capability
+    (no gray fallback on 256-colour terminals).
+    """
     pos = _led_positions()
-    grid = [["\x1b[48;2;10;14;18m  \x1b[0m" for _ in range(40)]
-            for _ in range(20)]
+    dark = "[on rgb(10,14,18)]  [/]"
+    grid = [[dark for _ in range(40)] for _ in range(20)]
     for i, led in enumerate(frame):
         r, g, b = (max(0, min(255, int(c))) for c in led)
         x, y = pos[i]
-        grid[y][x] = f"\x1b[48;2;{r};{g};{b}m  \x1b[0m"
+        grid[y][x] = f"[on rgb({r},{g},{b})]  [/]"
     return "\n".join("".join(row) for row in grid)
 
 

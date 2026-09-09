@@ -333,7 +333,7 @@ check("oled twin renders pixels", "▀" in art or "█" in art)
 fb.clear()
 check("oled twin blank is blank", bench.oled_art(fb).strip() == "")
 ring = bench.ring_art([(255, 0, 0)] * 24)
-check("ring twin renders truecolour", "\x1b[48;2;255;0;0m" in ring)
+check("ring twin renders markup", "[on rgb(255,0,0)]" in ring)
 
 
 async def _pilot():
