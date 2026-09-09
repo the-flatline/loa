@@ -13,6 +13,7 @@ dependencies = ["spidev>=3.5"]
 
 [project.optional-dependencies]
 api = ["fastapi>=0.110", "uvicorn>=0.27"]
+bench = ["textual>=0.60"]
 
 [project.scripts]
 loa-presence = "loa_ring.presence:main"
@@ -20,6 +21,7 @@ loa-sense = "loa_ring.sense:main"
 loa-ctl = "loa_ring.control:serve"
 loa-api = "loa_ring.api:main"
 loa-oled = "loa_ring.oled_daemon:main"
+loa-bench = "loa_ring.bench:main"
 
 [tool.setuptools]
 packages = ["loa_ring"]

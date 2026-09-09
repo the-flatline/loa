@@ -322,4 +322,32 @@ render_loop(max_frames=5)
 check("oled daemon renders ripperdoc", True)
 cortex.set_state({"oled_mode": "scope"})
 
+print("== bench twin (no hardware) ==\n")
+
+from loa_ring import bench  # noqa: E402
+
+fb = oled.Frame()
+fb.px(0, 0)
+art = bench.oled_art(fb)
+check("oled twin renders pixels", "▀" in art or "█" in art)
+fb.clear()
+check("oled twin blank is blank", bench.oled_art(fb).strip() == "")
+ring = bench.ring_art([(255, 0, 0)] * 24)
+check("ring twin renders truecolour", "\x1b[48;2;255;0;0m" in ring)
+
+
+async def _pilot():
+    app = bench.BenchApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.query_one("#status", Static).update("ok")
+        await pilot.pause()
+        app.exit()
+
+
+import asyncio  # noqa: E402
+from textual.widgets import Static  # noqa: E402
+asyncio.run(_pilot())
+check("bench app boots headless", True)
+
 print(f"\nALL {PASS} CHECKS PASSED")
