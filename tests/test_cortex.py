@@ -50,9 +50,10 @@ r = c.get("/state")
 check("state", r.status_code == 200 and r.json()["mood"]["feeling"] in moods.MOODS)
 r = c.get("/state?history=10")
 check("state history", r.status_code == 200 and len(r.json()["history"]) > 0)
-tr = c.get("/twin")
-check("twin endpoint", tr.status_code == 200 and "ring" in tr.json()
-      and "face" in tr.json() and "status" in tr.json())
+r = c.get("/twin")
+check("twin endpoint", r.status_code == 200 and "ring" in r.json()
+      and "face" in r.json() and "status" in r.json())
+r = c.get("/state")
 check("state has sensors (honest)", r.json()["sensors"]["available"] is False)
 
 for mood in moods.MOODS:
