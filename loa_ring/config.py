@@ -29,13 +29,16 @@ ENV_KEYS = {
     "cortex_db": "LOA_CORTEX_DB",
     "sense_gpio": "LOA_SENSE_GPIO",
     "sense_cooldown": "LOA_SENSE_COOLDOWN",
+    "sense_trig": "LOA_SENSE_TRIG",
+    "sense_echo": "LOA_SENSE_ECHO",
+    "sense_period": "LOA_SENSE_PERIOD",
 }
 
 # groups in the JSON form map to these flat keys
 _GROUP_KEYS = {
     "ring": ("num", "bus", "device", "speed"),
     "oled": ("bus", "device", "speed", "offset"),
-    "sense": ("gpio", "cooldown"),
+    "sense": ("gpio", "cooldown", "trig", "echo", "period"),
 }
 
 

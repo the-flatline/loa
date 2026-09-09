@@ -12,6 +12,7 @@ Off-Pi, tests inject a fake reader.
 
 import re
 import subprocess
+import threading
 import time
 
 from . import config
@@ -21,6 +22,11 @@ from . import moods
 POLL_PERIOD = 0.2
 DEFAULT_GPIO = 17
 DEFAULT_COOLDOWN = 5.0
+DEFAULT_TRIG = 23
+DEFAULT_ECHO = 22
+DEFAULT_SNR_PERIOD = 1.0
+SNR_TIMEOUT = 0.03          # 30ms echo wait — ~500cm ceiling
+SNR_CHIPS = ("/dev/gpiochip0", "/dev/gpiochip4")
 
 _HI = re.compile(r"\bhi\b")
 
@@ -106,12 +112,94 @@ class SensePoller:
             time.sleep(self.poll_period)
 
 
+class Sonar:
+    """Ultrasonic distance — TRIG pulse on one GPIO, time the ECHO high pulse
+    on another. Needs microsecond timing, so gpiod (not pinctrl) drives it;
+    off-Pi tests inject a fake measure().
+
+    Reads land in cortex as snr_cm / snr_ts / snr_count so the ripperdoc
+    board can show the LAST distance — the echo pulse is too short to see
+    as a light, the number is the signal.
+    """
+
+    def __init__(self, trig=DEFAULT_TRIG, echo=DEFAULT_ECHO,
+                 period=DEFAULT_SNR_PERIOD, measure=None, chip=None):
+        self.trig = trig
+        self.echo = echo
+        self.period = period
+        self.measure = measure or self._gpiod_measure
+        self.chip = chip
+        self._stop = threading.Event()
+
+    def _gpiod_measure(self):
+        try:
+            import gpiod
+            from gpiod.line import Direction, Value
+        except ImportError:
+            return None
+        for path in ([self.chip] if self.chip else list(SNR_CHIPS)):
+            try:
+                req = gpiod.request_lines(
+                    path, consumer="loa-snr",
+                    config={
+                        self.trig: gpiod.LineSettings(
+                            direction=Direction.OUTPUT,
+                            output_value=Value.INACTIVE),
+                        self.echo: gpiod.LineSettings(
+                            direction=Direction.INPUT),
+                    })
+            except OSError:
+                continue
+            try:
+                t0 = time.perf_counter_ns()
+                req.set_value(self.trig, Value.ACTIVE)
+                while time.perf_counter_ns() - t0 < 10_000:
+                    pass
+                req.set_value(self.trig, Value.INACTIVE)
+                t_start = time.perf_counter()
+                while req.get_value(self.echo) is Value.INACTIVE:
+                    if time.perf_counter() - t_start > SNR_TIMEOUT:
+                        return None
+                t_hi = time.perf_counter()
+                while req.get_value(self.echo) is Value.ACTIVE:
+                    if time.perf_counter() - t_hi > SNR_TIMEOUT:
+                        return None
+                t_end = time.perf_counter()
+                us = (t_end - t_hi) * 1e6
+                return us / 58.0
+            finally:
+                req.release()
+        return None
+
+    def tick(self):
+        cm = self.measure()
+        if cm is None:
+            return
+        now = time.time()
+        n = (cortex.get_state().get("snr_count") or 0) + 1
+        cortex.set_state({"snr_cm": cm, "snr_ts": now, "snr_count": n})
+
+    def run(self):
+        while not self._stop.is_set():
+            self.tick()
+            self._stop.wait(self.period)
+
+    def stop(self):
+        self._stop.set()
+
+
 def main():
     cfg = config.load()
     gpio = int(cfg.get("sense_gpio", DEFAULT_GPIO))
     cooldown = float(cfg.get("sense_cooldown", DEFAULT_COOLDOWN))
+    trig = int(cfg.get("sense_trig", DEFAULT_TRIG))
+    echo = int(cfg.get("sense_echo", DEFAULT_ECHO))
+    period = float(cfg.get("sense_period", DEFAULT_SNR_PERIOD))
+    # the N counter is per-boot: a rebooted body starts at zero
+    cortex.set_state({"sense_count": 0, "snr_count": 0})
     cortex.log_event("boot", {"svc": "sense", "gpio": gpio,
-                              "cooldown": cooldown})
+                              "cooldown": cooldown, "trig": trig,
+                              "echo": echo, "snr_period": period})
     set_input(gpio)
     # sync the light with the pin at boot — a stuck/stale state must not
     # survive a reboot (jumper fiddling can leave the module latched high)
@@ -119,7 +207,13 @@ def main():
     if level is not None:
         cortex.set_state({"pir_high": int(level),
                           "pir_on_ts": time.time() if level else None})
-    SensePoller(gpio=gpio, cooldown=cooldown).run()
+    snr = Sonar(trig=trig, echo=echo, period=period)
+    t = threading.Thread(target=snr.run, daemon=True)
+    t.start()
+    try:
+        SensePoller(gpio=gpio, cooldown=cooldown).run()
+    finally:
+        snr.stop()
 
 
 if __name__ == "__main__":

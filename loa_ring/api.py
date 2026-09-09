@@ -63,7 +63,7 @@ class DisplayRequest(BaseModel):
 
 class RipperdocRequest(BaseModel):
     on: bool | None = Field(None, description="bench mode on/off")
-    page: str | None = Field(None, description="sensors|pir — which board page")
+    page: str | None = Field(None, description="sensors|pir|snr — which board page")
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +132,9 @@ def _full_state(history_n=0):
             "count": st["sense_count"],
             "last_ts": st["sense_ts"],
             "last_hold": st["pir_last_hold"],
+            "snr_cm": st["snr_cm"],
+            "snr_ts": st["snr_ts"],
+            "snr_count": st["snr_count"],
         },
         "system": _system_state(),
         "history": cortex.history(history_n) if history_n > 0 else [],

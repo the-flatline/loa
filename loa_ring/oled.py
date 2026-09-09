@@ -541,29 +541,36 @@ class Ripperdoc:
     """
 
     TITLE = "RIPPERDOC"
-    PAGES = ("sensors", "pir")
+    PAGES = ("sensors", "pir", "snr")
 
     def draw_state(self, frame, t, st):
         page = st.get("ripperdoc_page", "sensors")
         if page == "pir":
             self._page_pir(frame, t, st)
+        elif page == "snr":
+            self._page_snr(frame, t, st)
         else:
             self._page_sensors(frame, t, st)
 
     def _page_sensors(self, frame, t, st):
         amiga.draw(frame, self.TITLE, 2, 1, size=8)
-        amiga.draw(frame, "1/2", 99, 1, size=8)
+        amiga.draw(frame, "1/3", 99, 1, size=8)
         self._indicator(frame, 2, 12, "PIR", bool(st.get("pir_high")))
-        self._indicator(frame, 39, 12, "SR04", False)
+        self._indicator(frame, 39, 12, "SNR", False)
         self._indicator(frame, 85, 12, "TMP", False)
         self._indicator(frame, 2, 26, "BAR", False)
         count = st.get("sense_count") or 0
         amiga.draw(frame, f"N{count:03d}", 2, 40, size=8)
         amiga.draw(frame, "G17", 44, 40, size=8)
+        snr_cm = st.get("snr_cm")
+        if snr_cm is not None:
+            amiga.draw(frame, f"{snr_cm:4.0f}CM", 66, 40, size=8)
+        else:
+            amiga.draw(frame, "  --CM", 66, 40, size=8)
 
     def _page_pir(self, frame, t, st):
         amiga.draw(frame, "PIR", 2, 1, size=8)
-        amiga.draw(frame, "2/2", 99, 1, size=8)
+        amiga.draw(frame, "2/3", 99, 1, size=8)
         self._indicator(frame, 2, 12, "PIR", bool(st.get("pir_high")))
         count = st.get("sense_count") or 0
         last = st.get("sense_ts")
@@ -577,6 +584,22 @@ class Ripperdoc:
         lt = "--:--:--" if not last else \
             time.strftime("%H:%M:%S", time.localtime(last))
         amiga.draw(frame, f"L{lt}", 2, 46, size=8)
+
+    def _page_snr(self, frame, t, st):
+        amiga.draw(frame, "SNR", 2, 1, size=8)
+        amiga.draw(frame, "3/3", 99, 1, size=8)
+        snr_cm = st.get("snr_cm")
+        if snr_cm is not None:
+            amiga.draw(frame, f"{snr_cm:4.0f}CM", 2, 12, size=8)
+        else:
+            amiga.draw(frame, "  --CM", 2, 12, size=8)
+        count = st.get("snr_count") or 0
+        amiga.draw(frame, f"N{count:03d}", 2, 28, size=8)
+        last = st.get("snr_ts")
+        lt = "--:--:--" if not last else \
+            time.strftime("%H:%M:%S", time.localtime(last))
+        amiga.draw(frame, f"L{lt}", 2, 37, size=8)
+        amiga.draw(frame, "G22", 2, 46, size=8)
 
     def _indicator(self, frame, x, y, label, level):
         w = amiga.width(label, 8) + 8

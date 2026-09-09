@@ -51,6 +51,9 @@ def _connect():
             pir_on_ts REAL,
             pir_last_hold REAL NOT NULL DEFAULT 0,
             ripperdoc_page TEXT NOT NULL DEFAULT 'sensors',
+            snr_cm REAL,
+            snr_ts REAL,
+            snr_count INTEGER NOT NULL DEFAULT 0,
             updated_at REAL NOT NULL
         )""")
         _conn.execute("""CREATE TABLE IF NOT EXISTS events (
@@ -77,6 +80,9 @@ def _ensure_schema():
         ("pir_on_ts", "REAL"),
         ("pir_last_hold", "REAL NOT NULL DEFAULT 0"),
         ("ripperdoc_page", "TEXT NOT NULL DEFAULT 'sensors'"),
+        ("snr_cm", "REAL"),
+        ("snr_ts", "REAL"),
+        ("snr_count", "INTEGER NOT NULL DEFAULT 0"),
     ):
         if name not in cols:
             _conn.execute(f"ALTER TABLE state ADD COLUMN {name} {ddl}")
@@ -98,7 +104,10 @@ def _row_to_state(row):
         "pir_on_ts": row[11],
         "pir_last_hold": row[12],
         "ripperdoc_page": row[13],
-        "updated_at": row[14],
+        "snr_cm": row[14],
+        "snr_ts": row[15],
+        "snr_count": row[16],
+        "updated_at": row[17],
     }
 
 
@@ -107,7 +116,8 @@ def get_state():
         row = _connect().execute(
             "SELECT ring_state, pending_event, mood, expression, oled_mode, "
             "oled_text, oled_dim, ripperdoc, pir_high, sense_ts, sense_count, "
-            "pir_on_ts, pir_last_hold, ripperdoc_page, updated_at FROM state WHERE id = 1"
+            "pir_on_ts, pir_last_hold, ripperdoc_page, snr_cm, snr_ts, "
+            "snr_count, updated_at FROM state WHERE id = 1"
         ).fetchone()
     if row is None:
         return _defaults()
@@ -121,6 +131,7 @@ def _defaults():
         "oled_dim": False, "ripperdoc": False, "pir_high": False,
         "sense_ts": None, "sense_count": 0, "pir_on_ts": None,
         "pir_last_hold": 0.0, "ripperdoc_page": "sensors",
+        "snr_cm": None, "snr_ts": None, "snr_count": 0,
         "updated_at": 0.0,
     }
 
@@ -131,8 +142,9 @@ def set_state(fields):
     allowed = {"ring_state", "pending_event", "mood", "expression",
                "oled_mode", "oled_text", "oled_dim", "ripperdoc",
                "pir_high", "sense_ts", "sense_count", "ripperdoc_page",
-               "pir_on_ts", "pir_last_hold"}
-    int_fields = {"oled_dim", "ripperdoc", "pir_high", "sense_count"}
+               "pir_on_ts", "pir_last_hold", "snr_cm", "snr_ts", "snr_count"}
+    int_fields = {"oled_dim", "ripperdoc", "pir_high", "sense_count",
+                  "snr_count"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
         return

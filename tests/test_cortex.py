@@ -231,6 +231,23 @@ st = cortex.get_state()
 check("sense falling edge latches hold", st["pir_high"] is False
       and st["pir_on_ts"] is None and st["pir_last_hold"] >= 0.0)
 
+# sonar: a fake measure feeds distance into the cortex
+cortex.set_state({"snr_cm": None, "snr_ts": None, "snr_count": 0})
+s = sense_mod.Sonar(trig=23, echo=22, period=0.0, measure=lambda: 42.5)
+s.tick()
+st = cortex.get_state()
+check("sonar writes distance + count", st["snr_cm"] == 42.5
+      and st["snr_count"] == 1 and st["snr_ts"] is not None)
+s2 = sense_mod.Sonar(trig=23, echo=22, period=0.0, measure=lambda: None)
+s2.tick()
+st = cortex.get_state()
+check("sonar no-read leaves state", st["snr_cm"] == 42.5
+      and st["snr_count"] == 1)
+# boot resets the N counters
+cortex.set_state({"sense_count": 9, "snr_count": 9})
+sense_mod.main = lambda: None  # don't run the daemon
+check("sonar class exists for ripperdoc", hasattr(sense_mod, "Sonar"))
+
 print("== ripperdoc mode ==")
 
 r = c.post("/ripperdoc", json={"on": True})
@@ -248,6 +265,10 @@ r = c.post("/ripperdoc", json={"page": "pir"})
 check("ripperdoc page switch",
       r.status_code == 200 and r.json()["page"] == "pir"
       and cortex.get_state()["ripperdoc_page"] == "pir")
+r = c.post("/ripperdoc", json={"page": "snr"})
+check("ripperdoc snr page switch",
+      r.status_code == 200 and r.json()["page"] == "snr"
+      and cortex.get_state()["ripperdoc_page"] == "snr")
 r = c.post("/ripperdoc", json={"page": "bogus"})
 check("bad ripperdoc page 400", r.status_code == 400)
 r = c.post("/ripperdoc", json={"page": "sensors"})
@@ -286,6 +307,16 @@ rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
                           "sense_ts": 96.8, "ripperdoc_page": "pir"})
 pir_on = bytes(fb.buf)
 check("pir detail page shows the light", sum(pir_on) > sum(pir_off))
+fb.clear()
+rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
+                          "sense_ts": 96.8, "ripperdoc_page": "snr",
+                          "snr_cm": 42.5, "snr_count": 3, "snr_ts": 96.8})
+check("ripperdoc snr page draws with distance", sum(fb.buf) > 0)
+fb.clear()
+rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
+                          "sense_ts": 96.8, "ripperdoc_page": "snr",
+                          "snr_cm": None, "snr_count": 0, "snr_ts": None})
+check("ripperdoc snr page draws no-read", sum(fb.buf) > 0)
 cortex.set_state({"oled_mode": "ripperdoc"})
 render_loop(max_frames=5)
 check("oled daemon renders ripperdoc", True)
