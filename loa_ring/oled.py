@@ -556,7 +556,7 @@ class Ripperdoc:
         amiga.draw(frame, self.TITLE, 2, 1, size=8)
         amiga.draw(frame, "1/3", 99, 1, size=8)
         self._indicator(frame, 2, 12, "PIR", bool(st.get("pir_high")))
-        self._indicator(frame, 39, 12, "SNR", False)
+        self._indicator(frame, 39, 12, "SNR", st.get("snr_cm") is not None)
         self._indicator(frame, 85, 12, "TMP", False)
         self._indicator(frame, 2, 26, "BAR", False)
         count = st.get("sense_count") or 0

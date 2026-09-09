@@ -289,6 +289,17 @@ rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
 on_buf = bytes(fb.buf)
 check("ripperdoc solid when high", sum(on_buf) > sum(off_buf))
 fb.clear()
+rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
+                          "sense_ts": 96.8, "snr_cm": None,
+                          "ripperdoc_page": "sensors"})
+snr_off = bytes(fb.buf)
+fb.clear()
+rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
+                          "sense_ts": 96.8, "snr_cm": 42.0,
+                          "ripperdoc_page": "sensors"})
+snr_on = bytes(fb.buf)
+check("snr indicator lit when enabled", sum(snr_on) > sum(snr_off))
+fb.clear()
 rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
                           "sense_ts": 96.8, "ripperdoc_page": "sensors"})
 from loa_ring import amiga  # noqa: E402
