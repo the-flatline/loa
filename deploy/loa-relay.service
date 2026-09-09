@@ -1,0 +1,13 @@
+[Unit]
+Description=loa relay — poll the loa frame bus for the web twin
+After=network-online.target
+
+[Service]
+ExecStart=/home/flatline/.local/bin/uv run --project /home/flatline/dev/loa-relay relay.py
+WorkingDirectory=/home/flatline/dev/loa-relay
+Restart=always
+RestartSec=3
+User=flatline
+
+[Install]
+WantedBy=multi-user.target
