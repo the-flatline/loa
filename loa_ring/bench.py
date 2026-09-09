@@ -111,17 +111,24 @@ def _led_positions(r=7, cx=19, cy=9):
     return pts
 
 
-def ring_art(frame):
-    """Ring frame (list of RGB float tuples) -> Textual markup blocks.
+def _to_display(rgb):
+    """Perceptual (0..255) -> display space, same gamma the real ring does."""
+    return tuple(max(0, min(255, int(255 * (c / 255) ** (1 / 2.2))))
+                 for c in rgb)
 
-    Markup, not raw ANSI, so colours honour the terminal's real capability
-    (no gray fallback on 256-colour terminals).
+
+def ring_art(frame):
+    """Ring frame (float RGB perceptual) -> Textual markup blocks.
+
+    The 24-LED ring SHAPE is always visible as dim cells; the animation
+    illuminates them. Gamma boost so the breath ramp (3->35 perceptual)
+    reads as a real brightness change (35->104 display).
     """
     pos = _led_positions()
-    dark = "[on rgb(10,14,18)]  [/]"
-    grid = [[dark for _ in range(40)] for _ in range(20)]
+    dim = "[on rgb(12,16,12)]  [/]"      # the unlit ring shape
+    grid = [[dim for _ in range(40)] for _ in range(20)]
     for i, led in enumerate(frame):
-        r, g, b = (max(0, min(255, int(c))) for c in led)
+        r, g, b = _to_display(led)
         x, y = pos[i]
         grid[y][x] = f"[on rgb({r},{g},{b})]  [/]"
     return "\n".join("".join(row) for row in grid)
