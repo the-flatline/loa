@@ -252,6 +252,48 @@ def ripperdoc(req: RipperdocRequest):
             "page": st["ripperdoc_page"], "oled": st["oled_mode"]}
 
 
+@app.get("/twin")
+def twin():
+    """The loa frame bus for web consumers: ring + face + status in one hit.
+
+    Reads the RAM topics; returns compact payloads (ring hex, face base64).
+    The site relay on dixie polls this and serves the browser — loa is never
+    exposed to the tunnel.
+    """
+    import base64
+    import os
+    ring = None
+    face = None
+    try:
+        with open("/dev/shm/loa-ring.bin", "rb") as f:
+            ring = f.read(72).hex()
+    except OSError:
+        pass
+    try:
+        with open("/dev/shm/loa-oled.bin", "rb") as f:
+            face = base64.b64encode(f.read(1024)).decode()
+    except OSError:
+        pass
+    st = cortex.get_state()
+    return {
+        "ts": time.time(),
+        "ring": ring,
+        "face": face,
+        "status": {
+            "mood": st["mood"],
+            "ring_state": st["ring_state"],
+            "pending_event": st["pending_event"],
+            "oled_mode": st["oled_mode"],
+            "ripperdoc": st["ripperdoc"],
+            "page": st["ripperdoc_page"],
+            "pir_high": st["pir_high"],
+            "sense_count": st["sense_count"],
+            "pir_last_hold": st["pir_last_hold"],
+            "snr_cm": st["snr_cm"],
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # entry point
 

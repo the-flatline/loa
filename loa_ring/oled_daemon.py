@@ -26,6 +26,9 @@ MODE_CLASSES = {
     "ripperdoc": oled.Ripperdoc,
 }
 
+# the face's topic on the loa frame bus — RAM-backed, mirror of the panel
+OLED_TOPIC = "/dev/shm/loa-oled.bin"
+
 BRIGHT = 0xCF
 DIM = 0x18
 
@@ -78,6 +81,7 @@ def render_loop(display=None, max_frames=None):
                 else:
                     renderer.draw(frame, now)
                 frame.blit(display)
+                _publish_face(frame)
             frames += 1
             time.sleep(FRAME_PERIOD)
     finally:
@@ -85,6 +89,19 @@ def render_loop(display=None, max_frames=None):
             display.close()
         except Exception:
             pass
+
+
+def _publish_face(frame) -> None:
+    """Publish the exact framebuffer to /dev/shm/loa-oled.bin (1KB).
+
+    The face's topic on the loa frame bus — RAM-backed, same model as the
+    ring. Web/relay consumers read it via the API, never touch loa directly.
+    """
+    try:
+        with open(OLED_TOPIC, "wb") as f:
+            f.write(frame.buf)
+    except OSError:
+        pass
 
 
 def _wash(display, frame, secs):
