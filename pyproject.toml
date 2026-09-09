@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loa-ring"
-version = "0.6.1"
+version = "0.6.2"
 description = "loa cortex — ring + OLED drivers, moods, expressions, and the HTTP controller for the loa outpost (Raspberry Pi 5)"
 readme = "README.md"
 requires-python = ">=3.11"
