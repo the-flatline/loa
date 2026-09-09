@@ -343,10 +343,11 @@ art = bench.oled_art(fb)
 check("oled twin renders pixels", "▀" in art or "█" in art)
 fb.clear()
 check("oled twin blank is blank", bench.oled_art(fb).strip() == "")
-ring = bench.ring_art([(255, 0, 0)] * 24)
+ring = bench.ring_art_bytes(bytes([255, 0, 0]) * 24)
 check("ring twin renders markup", "[on rgb(255,0,0)]" in ring)
 check("ring twin dim shape present", "[on rgb(12,16,12)]" in ring)
-check("ring gamma boosts dim", bench._to_display((35, 35, 35))[0] > 90)
+check("ring 24 unique ordered slots",
+      len(set(bench._led_positions())) == 24)
 
 
 async def _pilot():

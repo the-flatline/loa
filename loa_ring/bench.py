@@ -26,7 +26,6 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Static
 
-from . import animations as anim
 from . import cortex
 from . import oled
 from . import oled_daemon
@@ -100,38 +99,34 @@ def oled_art(frame):
     return "\n".join(lines)
 
 
-def _led_positions(r=7, cx=19, cy=9):
-    """24 LEDs on a circle in a 2:1 char grid (chars are ~2x tall)."""
-    import math
-    pts = []
-    for i in range(24):
-        a = math.radians(i * 15)
-        pts.append((round(cx + r * 0.5 * math.sin(a)),
-                    round(cy - r * math.cos(a))))
-    return pts
+def _led_positions():
+    """24 LEDs clockwise around a rounded-rectangle ring, IN ORDER.
 
-
-def _to_display(rgb):
-    """Perceptual (0..255) -> display space, same gamma the real ring does."""
-    return tuple(max(0, min(255, int(255 * (c / 255) ** (1 / 2.2))))
-                 for c in rgb)
-
-
-def ring_art(frame):
-    """Ring frame (float RGB perceptual) -> Textual markup blocks.
-
-    The 24-LED ring SHAPE is always visible as dim cells; the animation
-    illuminates them. Gamma boost so the breath ramp (3->35 perceptual)
-    reads as a real brightness change (35->104 display).
+    Order matters more than shape — the comet's direction only reads if
+    LED n+1 sits next to LED n. Clean slots, no rounding collisions.
     """
-    pos = _led_positions()
-    dim = "[on rgb(12,16,12)]  [/]"      # the unlit ring shape
+    top = [(x, 2) for x in (6, 10, 14, 18, 22, 26, 30, 34)]       # 0-7
+    right = [(36, y) for y in (5, 8, 11, 14)]                     # 8-11
+    bottom = [(x, 17) for x in (34, 30, 26, 22, 18, 14, 10, 6)]   # 12-19
+    left = [(4, y) for y in (14, 11, 8, 5)]                       # 20-23
+    return top + right + bottom + left
+
+
+def ring_art_bytes(raw, pos=None):
+    """Render 72 bytes of display-space LED values (the loa frame bus)."""
+    pos = pos or _led_positions()
+    dim = "[on rgb(12,16,12)]  [/]"
     grid = [[dim for _ in range(40)] for _ in range(20)]
-    for i, led in enumerate(frame):
-        r, g, b = _to_display(led)
+    for i in range(24):
+        r, g, b = raw[i * 3], raw[i * 3 + 1], raw[i * 3 + 2]
+        if r + g + b < 12:            # off LEDs keep the ring shape visible
+            continue
         x, y = pos[i]
         grid[y][x] = f"[on rgb({r},{g},{b})]  [/]"
     return "\n".join("".join(row) for row in grid)
+
+
+RING_TOPIC = "/dev/shm/loa-ring.bin"
 
 
 def fetch_sense():
@@ -179,9 +174,6 @@ class BenchApp(App):
     def on_mount(self):
         self.set_interval(POLL_S, self._tick)
         self._mood_i = 0
-        self._ring_frames = []
-        self._ring_idx = 0
-        self._ring_key = None
 
     def _tick(self):
         try:
@@ -208,34 +200,20 @@ class BenchApp(App):
             except Exception:
                 pass
         self.query_one("#oled-pane", Static).update(oled_art(frame))
-        # ring twin: follow the ACTUAL ring state, one frame per tick
-        self._tick_ring(st)
+        # ring twin: mirror the body's actual output (the loa frame bus)
+        self._tick_ring()
 
-    def _tick_ring(self, st):
-        key = (st["ring_state"], st["pending_event"])
-        if key != self._ring_key:
-            self._ring_key = key
-            if st["ring_state"] == "alarm":
-                self._ring_frames = anim.alarm_frames()
-            elif st["ring_state"] == "busy":
-                self._ring_frames = anim.busy_frames(fps=10)
-            elif st["pending_event"] == "scan":
-                lap = 0.9 if st.get("ripperdoc") else 1.6
-                self._ring_frames = anim.scan_frames(lap_s=lap, fps=10)
-            elif st["pending_event"] == "glitch":
-                self._ring_frames = anim.glitch_frames(fps=10)
-            else:
-                self._ring_frames = anim.breath_frames(peak=anim.HOME_PEAK,
-                                                       fps=10)
-            self._ring_idx = 0
-        if not self._ring_frames:
+    def _tick_ring(self):
+        try:
+            with open(RING_TOPIC, "rb") as f:
+                raw = f.read(72)
+        except OSError:
+            raw = None
+        if raw is None or len(raw) < 72:
+            self.query_one("#ring-pane", Static).update(
+                "[red]RING OFFLINE[/]\n" + ring_art_bytes(bytes(72)))
             return
-        f = self._ring_frames[self._ring_idx % len(self._ring_frames)]
-        self._ring_idx += 1
-        self.query_one("#ring-pane", Static).update(ring_art(f))
-        # NOTE: never clear cortex events here — loa-presence owns them.
-        # The twin follows state; when the daemon clears the event the key
-        # changes and the twin moves on.
+        self.query_one("#ring-pane", Static).update(ring_art_bytes(raw))
 
     def action_ripperdoc(self):
         try:

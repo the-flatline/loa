@@ -74,6 +74,8 @@ class Ring:
         )
         self.spi.max_speed_hz = int(cfg.get("ring_speed", speed))
         self.spi.mode = 0b00
+        self._last_snap = 0.0
+        self._snap_fd = None
 
     def show(self, frame) -> None:
         """Render one frame: an iterable of colors, len == self.num.
@@ -86,6 +88,28 @@ class Ring:
             buf += grb(int(r), int(g), int(b))
         buf += b'\x00' * 24            # latch: 60us low
         self.spi.writebytes2(list(buf))
+        self._publish(frame)
+
+    def _publish(self, frame) -> None:
+        """Publish the exact display values to /dev/shm/loa-ring.bin (72B).
+
+        The retained topic of the loa frame bus — RAM-backed (tmpfs), zero
+        flash writes. presence publishes, the bench TUI (and any future
+        subscriber) reads the last value. Ephemeral by nature: it republishes
+        the moment the daemon runs. Config/cortex.db stay on disk; a live
+        mirror does not.
+        """
+        try:
+            if self._snap_fd is None:
+                self._snap_fd = open("/dev/shm/loa-ring.bin", "wb")
+            raw = bytearray()
+            for color in frame:
+                r, g, b = parse_color(color)
+                raw += bytes((int(r), int(g), int(b)))
+            self._snap_fd.seek(0)
+            self._snap_fd.write(raw)
+        except Exception:
+            pass
 
     def fill(self, rgb) -> None:
         """Set every LED to one color — tuple, hex string, or int."""
