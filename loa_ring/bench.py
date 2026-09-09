@@ -27,11 +27,12 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Static
 
 from . import animations as anim
+from . import cortex
 from . import oled
 from . import oled_daemon
 
 DEFAULT_PORT = 8765
-POLL_S = 0.5
+POLL_S = 0.1
 
 # Workbench 1.3 palette + CRT backdrop
 BLACK = "#000000"
@@ -128,18 +129,18 @@ def ring_art(frame):
 
 def fetch_sense():
     try:
-        st = _get("/state")
+        st = cortex.get_state()
     except Exception:
-        return "  api down"
-    s = st.get("sense", {})
+        return "  cortex down"
     page = st.get("ripperdoc_page", "sensors")
-    mood = st["mood"]["feeling"]
-    ring = st["ring"]["state"]
-    oled_mode = st["oled"]["mode"]
-    pir = "SOLID" if s.get("pir_high") else "open"
+    mood = st["mood"]
+    ring = st["ring_state"]
+    oled_mode = st["oled_mode"]
+    pir = "SOLID" if st.get("pir_high") else "open"
+    snr = "ON" if st.get("snr_cm") is not None else "OFF"
     return (f" mood {mood:8s} ring {ring:6s} oled {oled_mode:9s} "
-            f"page {page:7s} PIR {pir:5s} "
-            f"N{s.get('count', 0):04d} T{s.get('last_hold', 0.0):5.1f}s")
+            f"page {page:7s} PIR {pir:5s} SNR {snr:3s} "
+            f"N{st.get('sense_count', 0):04d} T{st.get('pir_last_hold', 0.0):5.1f}s")
 
 
 class BenchApp(App):
@@ -169,27 +170,28 @@ class BenchApp(App):
         yield Footer()
 
     def on_mount(self):
-        self.set_interval(POLL_S, self._poll)
+        self.set_interval(POLL_S, self._tick)
         self._mood_i = 0
+        self._ring_frames = []
+        self._ring_idx = 0
+        self._ring_key = None
 
-    def _poll(self):
+    def _tick(self):
         try:
-            st = _get("/state")
+            st = cortex.get_state()
         except Exception:
-            st = {}
-        self.query_one("#status", Static).update(fetch_sense())
-        if not st:
             return
+        self.query_one("#status", Static).update(fetch_sense())
         # face twin: run the real renderer for the current mode
         frame = oled.Frame()
-        mode = st["oled"]["mode"]
+        mode = st["oled_mode"]
         if mode == "off":
             frame.clear()
         else:
             cls = oled_daemon.MODE_CLASSES.get(mode, oled.Marquee)
             try:
                 if mode == "text":
-                    r = cls(st["oled"].get("text") or "LOA")
+                    r = cls(st.get("oled_text") or "LOA")
                 else:
                     r = cls()
                 if hasattr(r, "draw_state"):
@@ -199,11 +201,34 @@ class BenchApp(App):
             except Exception:
                 pass
         self.query_one("#oled-pane", Static).update(oled_art(frame))
-        # ring twin: home breath frames (the body's default)
-        breath = anim.breath_frames(peak=anim.HOME_PEAK, fps=10)
-        f = [anim.hsv(anim.home_hue(time.time()), 1.0,
-                      max(p) / 255) for p in breath[0]]
+        # ring twin: follow the ACTUAL ring state, one frame per tick
+        self._tick_ring(st)
+
+    def _tick_ring(self, st):
+        key = (st["ring_state"], st["pending_event"])
+        if key != self._ring_key:
+            self._ring_key = key
+            if st["ring_state"] == "alarm":
+                self._ring_frames = anim.alarm_frames()
+            elif st["ring_state"] == "busy":
+                self._ring_frames = anim.busy_frames(fps=10)
+            elif st["pending_event"] == "scan":
+                lap = 0.9 if st.get("ripperdoc") else 1.6
+                self._ring_frames = anim.scan_frames(lap_s=lap, fps=10)
+            elif st["pending_event"] == "glitch":
+                self._ring_frames = anim.glitch_frames(fps=10)
+            else:
+                self._ring_frames = anim.breath_frames(peak=anim.HOME_PEAK,
+                                                       fps=10)
+            self._ring_idx = 0
+        if not self._ring_frames:
+            return
+        f = self._ring_frames[self._ring_idx % len(self._ring_frames)]
+        self._ring_idx += 1
         self.query_one("#ring-pane", Static).update(ring_art(f))
+        # NOTE: never clear cortex events here — loa-presence owns them.
+        # The twin follows state; when the daemon clears the event the key
+        # changes and the twin moves on.
 
     def action_ripperdoc(self):
         try:
