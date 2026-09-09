@@ -195,11 +195,17 @@ def main():
     trig = int(cfg.get("sense_trig", DEFAULT_TRIG))
     echo = int(cfg.get("sense_echo", DEFAULT_ECHO))
     period = float(cfg.get("sense_period", DEFAULT_SNR_PERIOD))
+    snr_enabled = str(cfg.get("sense_snr_enabled", "true")).lower() \
+        not in ("0", "false", "no", "off")
     # the N counter is per-boot: a rebooted body starts at zero
     cortex.set_state({"sense_count": 0, "snr_count": 0})
+    if not snr_enabled:
+        # a disabled sonar is silent: no pings, no chirps, no reads
+        cortex.set_state({"snr_cm": None, "snr_ts": None})
     cortex.log_event("boot", {"svc": "sense", "gpio": gpio,
                               "cooldown": cooldown, "trig": trig,
-                              "echo": echo, "snr_period": period})
+                              "echo": echo, "snr_period": period,
+                              "snr_enabled": snr_enabled})
     set_input(gpio)
     # sync the light with the pin at boot — a stuck/stale state must not
     # survive a reboot (jumper fiddling can leave the module latched high)
@@ -207,13 +213,15 @@ def main():
     if level is not None:
         cortex.set_state({"pir_high": int(level),
                           "pir_on_ts": time.time() if level else None})
-    snr = Sonar(trig=trig, echo=echo, period=period)
-    t = threading.Thread(target=snr.run, daemon=True)
-    t.start()
+    snr = None
+    if snr_enabled:
+        snr = Sonar(trig=trig, echo=echo, period=period)
+        threading.Thread(target=snr.run, daemon=True).start()
     try:
         SensePoller(gpio=gpio, cooldown=cooldown).run()
     finally:
-        snr.stop()
+        if snr is not None:
+            snr.stop()
 
 
 if __name__ == "__main__":

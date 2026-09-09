@@ -32,13 +32,14 @@ ENV_KEYS = {
     "sense_trig": "LOA_SENSE_TRIG",
     "sense_echo": "LOA_SENSE_ECHO",
     "sense_period": "LOA_SENSE_PERIOD",
+    "sense_snr_enabled": "LOA_SENSE_SNR_ENABLED",
 }
 
 # groups in the JSON form map to these flat keys
 _GROUP_KEYS = {
     "ring": ("num", "bus", "device", "speed"),
     "oled": ("bus", "device", "speed", "offset"),
-    "sense": ("gpio", "cooldown", "trig", "echo", "period"),
+    "sense": ("gpio", "cooldown", "trig", "echo", "period", "snr_enabled"),
 }
 
 
