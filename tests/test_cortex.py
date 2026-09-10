@@ -18,8 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from loa_ring import api, cortex, expressions, moods, oled, presence  # noqa: E402
-from loa_ring.oled_daemon import _wash, render_loop  # noqa: E402
+from loa import api, cortex, expressions, moods, oled, presence  # noqa: E402
+from loa.oled_daemon import _wash, render_loop  # noqa: E402
 
 PASS = 0
 
@@ -183,7 +183,7 @@ check("alarm loop exits on state change", not t.is_alive())
 
 print("== sense daemon (fake reader) ==\n")
 
-from loa_ring import sense as sense_mod  # noqa: E402
+from loa import sense as sense_mod  # noqa: E402
 
 
 class FakeReader:
@@ -306,7 +306,7 @@ check("snr indicator lit when enabled", sum(snr_on) > sum(snr_off))
 fb.clear()
 rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
                           "sense_ts": 96.8, "ripperdoc_page": "sensors"})
-from loa_ring import amiga  # noqa: E402
+from loa import amiga  # noqa: E402
 amiga.draw(fb, rd.TITLE, 2, 1, size=8)
 check("amiga font draws", sum(fb.buf) > 0)
 fb.clear()
@@ -332,6 +332,13 @@ rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
                           "sense_ts": 96.8, "ripperdoc_page": "snr",
                           "snr_cm": None, "snr_count": 0, "snr_ts": None})
 check("ripperdoc snr page draws no-read", sum(fb.buf) > 0)
+fb.clear()
+rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
+                          "sense_ts": 96.8, "ripperdoc_page": "frag"})
+frag_buf = bytes(fb.buf)
+check("ripperdoc frag page draws", sum(frag_buf) > 0)
+check("ripperdoc frag page has lock + text pixels",
+      sum(frag_buf) > 0 and len(frag_buf) == len(off_buf))
 cortex.set_state({"oled_mode": "ripperdoc"})
 render_loop(max_frames=5)
 check("oled daemon renders ripperdoc", True)
@@ -339,7 +346,7 @@ cortex.set_state({"oled_mode": "scope"})
 
 print("== bench twin (no hardware) ==\n")
 
-from loa_ring import bench  # noqa: E402
+from loa import bench  # noqa: E402
 
 fb = oled.Frame()
 fb.px(0, 0)

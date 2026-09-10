@@ -1,4 +1,4 @@
-# loa-ring — the loa control stack
+# loa — the loa control stack
 
 The **cortex** of the loa outpost (a Raspberry Pi 5): ring driver, face
 (OLED) driver, a feelings vocabulary, expressions, and an HTTP controller
@@ -83,7 +83,7 @@ names when it lands.
 
 ```bash
 pip install "spidev>=3.5"
-pip install "git+https://github.com/the-flatline/loa-ring.git@main[api]"
+pip install "git+https://github.com/the-flatline/loa.git@main[api]"
 ```
 
 Services (see `deploy/`): `loa-presence.service`, `loa-sense.service`,
@@ -95,7 +95,7 @@ the gate (dixie -> loa:8765 only), DNS-first via `loa.zendient.com`.
 ## Use (library)
 
 ```python
-from loa_ring import Ring, animations
+from loa import Ring, animations
 
 ring = Ring(num=24)              # bus from loa.conf (as built: SPI1)
 ring.fill((0, 255, 0))           # tuple, "#00FF00", or 0x00FF00

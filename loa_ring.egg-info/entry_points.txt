@@ -1,5 +1,0 @@
-[console_scripts]
-loa-api = loa_ring.api:main
-loa-ctl = loa_ring.control:serve
-loa-oled = loa_ring.oled_daemon:main
-loa-presence = loa_ring.presence:main

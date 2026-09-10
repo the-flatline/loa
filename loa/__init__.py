@@ -1,4 +1,4 @@
-"""loa-ring — the loa outpost control stack.
+"""loa — the loa outpost control stack.
 
 Hardware layers (Ring: WS2812B over SPI; SH1106: the face over SPI0).
 Animation layers (pure math, no hardware — render anywhere).

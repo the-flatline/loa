@@ -8,7 +8,7 @@ import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from loa_ring import oled
+from loa import oled
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frames")
 os.makedirs(OUT, exist_ok=True)

@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "loa-ring"
+name = "loa"
 version = "0.7.0"
 description = "loa cortex — ring + OLED drivers, moods, expressions, and the HTTP controller for the loa outpost (Raspberry Pi 5)"
 readme = "README.md"
@@ -15,13 +15,16 @@ dependencies = ["spidev>=3.5", "cryptography>=42"]
 api = ["fastapi>=0.110", "uvicorn>=0.27", "cryptography>=42"]
 bench = ["textual>=0.60"]
 
+[dependency-groups]
+dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110", "cryptography>=42"]
+
 [project.scripts]
-loa-presence = "loa_ring.presence:main"
-loa-sense = "loa_ring.sense:main"
-loa-ctl = "loa_ring.control:serve"
-loa-api = "loa_ring.api:main"
-loa-oled = "loa_ring.oled_daemon:main"
-loa-bench = "loa_ring.bench:main"
+loa-presence = "loa.presence:main"
+loa-sense = "loa.sense:main"
+loa-ctl = "loa.control:serve"
+loa-api = "loa.api:main"
+loa-oled = "loa.oled_daemon:main"
+loa-bench = "loa.bench:main"
 
 [tool.setuptools]
-packages = ["loa_ring"]
+packages = ["loa"]

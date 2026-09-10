@@ -74,8 +74,6 @@ class Ring:
         )
         self.spi.max_speed_hz = int(cfg.get("ring_speed", speed))
         self.spi.mode = 0b00
-        self._last_snap = 0.0
-        self._snap_fd = None
 
     def show(self, frame) -> None:
         """Render one frame: an iterable of colors, len == self.num.
@@ -98,16 +96,18 @@ class Ring:
         subscriber) reads the last value. Ephemeral by nature: it republishes
         the moment the daemon runs. Config/cortex.db stay on disk; a live
         mirror does not.
+
+        Opens fresh every frame like the OLED topic: a deleted or cleaned
+        file is recreated on the next publish instead of writing to a stale
+        fd that no longer exists in the directory.
         """
         try:
-            if self._snap_fd is None:
-                self._snap_fd = open("/dev/shm/loa-ring.bin", "wb")
             raw = bytearray()
             for color in frame:
                 r, g, b = parse_color(color)
                 raw += bytes((int(r), int(g), int(b)))
-            self._snap_fd.seek(0)
-            self._snap_fd.write(raw)
+            with open("/dev/shm/loa-ring.bin", "wb") as f:
+                f.write(raw)
         except Exception:
             pass
 

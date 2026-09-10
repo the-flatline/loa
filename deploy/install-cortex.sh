@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install the cortex on the Pi. Run ON the Pi as user flatline, from a
-# checkout of the-flatline/loa-ring.
+# checkout of the-flatline/loa.
 #
 # Replaces the old flag-file stack (loa-ctl + v0.2 presence) with the
 # cortex: loa-presence + loa-oled + loa-api, all driven by cortex.db.
@@ -13,13 +13,13 @@ sudo systemctl disable loa-ctl 2>/dev/null || true
 echo "== clearing stale flag files =="
 rm -f /tmp/loa_alarm /tmp/loa_busy /tmp/loa_scan /tmp/loa_glitch
 
-echo "== installing loa-ring[api] into the Pi venv =="
+echo "== installing loa[api] into the Pi venv =="
 PY=/home/flatline/venv/bin/python
 if command -v uv >/dev/null 2>&1; then
-  uv pip install --python "$PY" "git+https://github.com/the-flatline/loa-ring.git@main[api]"
+  uv pip install --python "$PY" "git+https://github.com/the-flatline/loa.git@main[api]"
 else
   # #egg= extras form: works on older pip (pre-21.3) that mis-parses @main[api]
-  "$PY" -m pip install "git+https://github.com/the-flatline/loa-ring.git@main#egg=loa-ring[api]"
+  "$PY" -m pip install "git+https://github.com/the-flatline/loa.git@main#egg=loa[api]"
 fi
 
 echo "== installing services =="

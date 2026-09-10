@@ -112,8 +112,17 @@ def _system_state():
 
 
 def _sensors_state():
-    # REMOTE weather board isn't wired yet. Honest about it — no fake data.
-    return {"available": False, "note": "REMOTE weather board not wired yet"}
+    st = cortex.get_state()
+    temp = st.get("temp_c")
+    if temp is None:
+        return {"available": False, "note": "temp not reading yet"}
+    return {
+        "available": True,
+        "temp_c": temp,
+        "hum_pct": st.get("hum_pct"),
+        "temp_ts": st.get("temp_ts"),
+        "baro": {"available": False, "note": "XC3702 dead — replacement pending"},
+    }
 
 
 def _full_state(history_n=0):
@@ -300,6 +309,7 @@ def twin():
             "sense_count": st["sense_count"],
             "pir_last_hold": st["pir_last_hold"],
             "snr_cm": st["snr_cm"],
+            "frag": oled._fragment_status(),
         },
     }
 

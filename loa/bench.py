@@ -3,9 +3,9 @@
 Two faces, one command:
 
   loa-bench            — the TUI: Workbench-chrome console with digital twin
-                         panes (OLED + ring rendered by the REAL loa_ring
+                         panes (OLED + ring rendered by the REAL loa
                          renderers), live status, ripperdoc/mood/page keys.
-  loa-bench on [page]  — flip ripperdoc on (page: sensors|pir|snr)
+  loa-bench on [page]  — flip ripperdoc on (page: sensors|pir|snr|frag)
   loa-bench off        — back to scope
   loa-bench page <p>   — switch the ripperdoc page
   loa-bench status     — what the face is doing now
@@ -154,6 +154,7 @@ class BenchApp(App):
         ("1", "page_sensors", "sensors page"),
         ("2", "page_pir", "pir page"),
         ("3", "page_snr", "snr page"),
+        ("4", "page_frag", "frag page"),
         ("m", "mood", "cycle mood"),
         ("q", "quit", "quit"),
     ]
@@ -239,6 +240,12 @@ class BenchApp(App):
         except Exception:
             pass
 
+    def action_page_frag(self):
+        try:
+            _post("/ripperdoc", {"page": "frag"})
+        except Exception:
+            pass
+
     def action_mood(self):
         from . import moods
         names = list(moods.MOODS)
@@ -275,7 +282,7 @@ def main():
         elif cmd == "page":
             page = args[1] if len(args) > 1 else None
             if page is None:
-                print("usage: loa-bench page <sensors|pir|snr>")
+                print("usage: loa-bench page <sensors|pir|snr|frag>")
                 return 2
             r = _post("/ripperdoc", {"page": page})
             print(f"page {r['page']}")

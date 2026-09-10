@@ -27,6 +27,11 @@ DEFAULT_ECHO = 22
 DEFAULT_SNR_PERIOD = 1.0
 SNR_TIMEOUT = 0.03          # 30ms echo wait — ~500cm ceiling
 SNR_CHIPS = ("/dev/gpiochip0", "/dev/gpiochip4")
+DEFAULT_TEMP_GPIO = 4       # REMOTE weather board DATA (XC4520, DHT11-class)
+DEFAULT_TEMP_PERIOD = 10.0
+DHT_PULSE_WINDOW = 0.02     # 20ms to collect pulses; stuck line must not hang
+DHT_MAX_PULSES = 60
+DHT_ONE_US = 50000          # high pulse longer than 50us = bit 1 (DHT11/22)
 
 _HI = re.compile(r"\bhi\b")
 
@@ -188,6 +193,127 @@ class Sonar:
         self._stop.set()
 
 
+class DHT11:
+    """DHT11-class temp/humidity on one GPIO (the REMOTE weather board).
+
+    Start signal (20ms low), then the sensor pulls the line for a response
+    pair and 40 data bits. The gpiod re-request between the start and the
+    sampling window can miss the response pair, so pulses are collected and
+    every alignment is tried until the frame checksum validates — a valid
+    frame proves itself. Every wait is deadline-guarded: a stuck or
+    disconnected line returns None instead of hanging the daemon.
+
+    Reads land in cortex as temp_c / hum_pct / temp_ts / temp_count so the
+    ripperdoc board and the twin can show the room.
+    """
+
+    def __init__(self, gpio=DEFAULT_TEMP_GPIO, period=DEFAULT_TEMP_PERIOD,
+                 chip=None):
+        self.gpio = gpio
+        self.period = period
+        self.chip = chip
+        self._stop = threading.Event()
+
+    def _collect(self):
+        try:
+            import gpiod
+            from gpiod.line import Direction, Value
+        except ImportError:
+            return None
+        chips = [self.chip] if self.chip else list(SNR_CHIPS)
+        # start signal: drive the line low for 20ms
+        req = None
+        for path in chips:
+            try:
+                req = gpiod.request_lines(
+                    path, consumer="loa-dht",
+                    config={self.gpio: gpiod.LineSettings(
+                        direction=Direction.OUTPUT,
+                        output_value=Value.INACTIVE)})
+                break
+            except OSError:
+                continue
+        if req is None:
+            return None
+        req.set_value(self.gpio, Value.INACTIVE)
+        time.sleep(0.02)
+        req.release()
+        # sample as input
+        req = None
+        for path in chips:
+            try:
+                req = gpiod.request_lines(
+                    path, consumer="loa-dht",
+                    config={self.gpio: gpiod.LineSettings(
+                        direction=Direction.INPUT)})
+                break
+            except OSError:
+                continue
+        if req is None:
+            return None
+        pulses = []
+        deadline = time.monotonic() + DHT_PULSE_WINDOW
+        # wait for the first low — the response pair or the first bit
+        while req.get_value(self.gpio) == Value.ACTIVE:
+            if time.monotonic() > deadline:
+                req.release()
+                return None
+        while len(pulses) < DHT_MAX_PULSES:
+            while req.get_value(self.gpio) == Value.INACTIVE:
+                if time.monotonic() > deadline:
+                    req.release()
+                    return pulses
+            t0 = time.monotonic_ns()
+            while req.get_value(self.gpio) == Value.ACTIVE:
+                if time.monotonic() > deadline:
+                    break
+            t1 = time.monotonic_ns()
+            pulses.append(t1 - t0)
+        req.release()
+        return pulses
+
+    @staticmethod
+    def _decode(pulses):
+        # try every start offset; only a checksum-valid frame is accepted
+        for s in range(0, max(0, len(pulses) - 39)):
+            bits = [1 if p > DHT_ONE_US else 0 for p in pulses[s:s + 40]]
+            if len(bits) != 40:
+                continue
+            b = [int("".join(map(str, bits[i * 8:(i + 1) * 8])), 2)
+                 for i in range(5)]
+            if ((b[0] + b[1] + b[2] + b[3]) & 0xFF) != b[4]:
+                continue
+            hum = b[0] + b[1] / 10.0
+            temp = b[2] + b[3] / 10.0
+            if -40.0 <= temp <= 80.0 and 0.0 <= hum <= 100.0:
+                return temp, hum
+        return None
+
+    def read(self):
+        pulses = self._collect()
+        if not pulses:
+            return None
+        return self._decode(pulses)
+
+    def tick(self):
+        v = self.read()
+        if v is None:
+            return
+        temp, hum = v
+        now = time.time()
+        n = (cortex.get_state().get("temp_count") or 0) + 1
+        cortex.set_state({"temp_c": temp, "hum_pct": hum,
+                          "temp_ts": now, "temp_count": n})
+
+    def run(self):
+        while not self._stop.is_set():
+            self.tick()
+            self._stop.wait(self.period)
+
+    def stop(self):
+        self._stop.set()
+
+
 def main():
     cfg = config.load()
     gpio = int(cfg.get("sense_gpio", DEFAULT_GPIO))
@@ -197,6 +323,8 @@ def main():
     period = float(cfg.get("sense_period", DEFAULT_SNR_PERIOD))
     snr_enabled = str(cfg.get("sense_snr_enabled", "true")).lower() \
         not in ("0", "false", "no", "off")
+    temp_gpio = int(cfg.get("sense_temp_gpio", DEFAULT_TEMP_GPIO))
+    temp_period = float(cfg.get("sense_temp_period", DEFAULT_TEMP_PERIOD))
     # the N counter is per-boot: a rebooted body starts at zero
     cortex.set_state({"sense_count": 0, "snr_count": 0})
     if not snr_enabled:
@@ -205,7 +333,9 @@ def main():
     cortex.log_event("boot", {"svc": "sense", "gpio": gpio,
                               "cooldown": cooldown, "trig": trig,
                               "echo": echo, "snr_period": period,
-                              "snr_enabled": snr_enabled})
+                              "snr_enabled": snr_enabled,
+                              "temp_gpio": temp_gpio,
+                              "temp_period": temp_period})
     set_input(gpio)
     # sync the light with the pin at boot — a stuck/stale state must not
     # survive a reboot (jumper fiddling can leave the module latched high)
@@ -217,11 +347,14 @@ def main():
     if snr_enabled:
         snr = Sonar(trig=trig, echo=echo, period=period)
         threading.Thread(target=snr.run, daemon=True).start()
+    dht = DHT11(gpio=temp_gpio, period=temp_period)
+    threading.Thread(target=dht.run, daemon=True).start()
     try:
         SensePoller(gpio=gpio, cooldown=cooldown).run()
     finally:
         if snr is not None:
             snr.stop()
+        dht.stop()
 
 
 if __name__ == "__main__":
