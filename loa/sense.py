@@ -215,6 +215,7 @@ class DHT11:
         self.chip = chip
         self._stop = threading.Event()
         self._fails = 0
+        self._last_pulses = []
 
     def _collect(self):
         try:
@@ -293,6 +294,7 @@ class DHT11:
 
     def read(self):
         pulses = self._collect()
+        self._last_pulses = pulses or []
         if not pulses:
             return None
         return self._decode(pulses)
@@ -302,8 +304,11 @@ class DHT11:
         if v is None:
             self._fails += 1
             if self._fails == 1 or self._fails % 10 == 0:
-                print(f"dht: read failed ({self._fails}x)", file=sys.stderr,
-                      flush=True)
+                pulses = self._last_pulses
+                detail = (f"n={len(pulses)} head={pulses[:6]}"
+                          if pulses else "no pulses")
+                print(f"dht: read failed ({self._fails}x) {detail}",
+                      file=sys.stderr, flush=True)
             return
         self._fails = 0
         temp, hum = v
