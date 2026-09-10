@@ -54,6 +54,10 @@ def _connect():
             snr_cm REAL,
             snr_ts REAL,
             snr_count INTEGER NOT NULL DEFAULT 0,
+            temp_c REAL,
+            hum_pct REAL,
+            temp_ts REAL,
+            temp_count INTEGER NOT NULL DEFAULT 0,
             updated_at REAL NOT NULL
         )""")
         _conn.execute("""CREATE TABLE IF NOT EXISTS events (
@@ -83,6 +87,10 @@ def _ensure_schema():
         ("snr_cm", "REAL"),
         ("snr_ts", "REAL"),
         ("snr_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("temp_c", "REAL"),
+        ("hum_pct", "REAL"),
+        ("temp_ts", "REAL"),
+        ("temp_count", "INTEGER NOT NULL DEFAULT 0"),
     ):
         if name not in cols:
             _conn.execute(f"ALTER TABLE state ADD COLUMN {name} {ddl}")
@@ -107,7 +115,11 @@ def _row_to_state(row):
         "snr_cm": row[14],
         "snr_ts": row[15],
         "snr_count": row[16],
-        "updated_at": row[17],
+        "temp_c": row[17],
+        "hum_pct": row[18],
+        "temp_ts": row[19],
+        "temp_count": row[20],
+        "updated_at": row[21],
     }
 
 
@@ -117,7 +129,8 @@ def get_state():
             "SELECT ring_state, pending_event, mood, expression, oled_mode, "
             "oled_text, oled_dim, ripperdoc, pir_high, sense_ts, sense_count, "
             "pir_on_ts, pir_last_hold, ripperdoc_page, snr_cm, snr_ts, "
-            "snr_count, updated_at FROM state WHERE id = 1"
+            "snr_count, temp_c, hum_pct, temp_ts, temp_count, updated_at "
+            "FROM state WHERE id = 1"
         ).fetchone()
     if row is None:
         return _defaults()
@@ -142,9 +155,10 @@ def set_state(fields):
     allowed = {"ring_state", "pending_event", "mood", "expression",
                "oled_mode", "oled_text", "oled_dim", "ripperdoc",
                "pir_high", "sense_ts", "sense_count", "ripperdoc_page",
-               "pir_on_ts", "pir_last_hold", "snr_cm", "snr_ts", "snr_count"}
+               "pir_on_ts", "pir_last_hold", "snr_cm", "snr_ts", "snr_count",
+               "temp_c", "hum_pct", "temp_ts", "temp_count"}
     int_fields = {"oled_dim", "ripperdoc", "pir_high", "sense_count",
-                  "snr_count"}
+                  "snr_count", "temp_count"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
         return

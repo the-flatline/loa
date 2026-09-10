@@ -32,7 +32,8 @@ DEFAULT_TEMP_GPIO = 4       # REMOTE weather board DATA (XC4520, DHT11-class)
 DEFAULT_TEMP_PERIOD = 10.0
 DHT_PULSE_WINDOW = 0.02     # 20ms to collect pulses; stuck line must not hang
 DHT_MAX_PULSES = 60
-DHT_ONE_US = 50000          # high pulse longer than 50us = bit 1 (DHT11/22)
+DHT_ONE_US = 60000          # high pulse longer than 60us = bit 1 — this
+                            # clone's '0' drifts to ~47us, '1' starts at 70us
 
 _HI = re.compile(r"\bhi\b")
 
