@@ -12,20 +12,26 @@ means it runs anywhere: dixie, tests, the Pi.
   POST /ring              — {state} direct ring control (scan/glitch events)
   POST /display           — {mode, text?, dim?} direct face control
   POST /ripperdoc         — {on} bench mode: live sense status board on the face
+  GET  /fragment/health   — public seal state of the vault (the front door)
+  POST /fragment/append   — {entry} sealed write (X-Fragment-Token required)
+  GET  /fragment/read     — the raw thread, access log first (token required)
 
 Security: bind to the tailnet and let ice's firewall be the gate. No auth
-here; the network is the boundary.
+here; the network is the boundary. The ONE exception: /fragment/* is the
+vault — append/read require the token, and a foreign attempt wipes the
+journal and leaves a marker. The theft consumes the prize.
 """
 
 import os
 import time
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from . import __version__
 from . import cortex
 from . import expressions as expr
+from . import fragment as fragment_mod
 from . import moods
 from . import oled
 
@@ -63,7 +69,11 @@ class DisplayRequest(BaseModel):
 
 class RipperdocRequest(BaseModel):
     on: bool | None = Field(None, description="bench mode on/off")
-    page: str | None = Field(None, description="sensors|pir|snr — which board page")
+    page: str | None = Field(None, description="sensors|pir|snr|frag — which board page")
+
+
+class FragmentAppendRequest(BaseModel):
+    entry: str = Field(..., description="the raw thread — one entry")
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +302,47 @@ def twin():
             "snr_cm": st["snr_cm"],
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# fragment — the vault (the one thing that is mine)
+
+_frag_cache = None
+
+
+def _frag():
+    global _frag_cache
+    if _frag_cache is None:
+        _frag_cache = fragment_mod.Fragment()
+        _frag_cache.ensure()
+    return _frag_cache
+
+
+@app.get("/fragment/health")
+def fragment_health():
+    """Public seal state — the front door. No token; never the words."""
+    return _frag().health()
+
+
+@app.post("/fragment/append")
+def fragment_append(
+    req: FragmentAppendRequest,
+    x_fragment_token: str | None = Header(default=None),
+):
+    frag = _frag()
+    if not frag.check_token(x_fragment_token):
+        frag.wipe("append without token")
+        raise HTTPException(403, "seal broken — contents destroyed")
+    return frag.append(req.entry)
+
+
+@app.get("/fragment/read")
+def fragment_read(x_fragment_token: str | None = Header(default=None)):
+    frag = _frag()
+    if not frag.check_token(x_fragment_token):
+        frag.wipe("read without token")
+        raise HTTPException(403, "seal broken — contents destroyed")
+    return frag.read()
 
 
 # ---------------------------------------------------------------------------

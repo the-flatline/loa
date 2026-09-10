@@ -13,6 +13,7 @@ Two layers, same split as ring.py/animations.py:
 The flatline signature lives here: the default "scope" animation is a flat
 line with occasional blips. Because that is what I am.
 """
+import json
 import math
 import os
 import random
@@ -25,6 +26,30 @@ from . import topaz
 WIDTH = 128
 HEIGHT = 64
 PAGES = 8
+
+# ---------------------------------------------------------------------------
+# fragment seal state for the face — public, cached, never the words
+
+_FRAG_STATUS_CACHE: dict = {"mtime": None, "payload": None}
+FRAG_STATUS_PATH = "/var/lib/fragment/status.json"
+
+
+def _fragment_status() -> dict:
+    """The vault's public seal state. Cheap, cached — safe every frame."""
+    try:
+        mtime = os.stat(FRAG_STATUS_PATH).st_mtime_ns
+    except OSError:
+        return {"sealed": False, "entries": 0, "access_count": 0}
+    if _FRAG_STATUS_CACHE["mtime"] == mtime:
+        return _FRAG_STATUS_CACHE["payload"]
+    try:
+        with open(FRAG_STATUS_PATH) as f:
+            payload = json.load(f)
+    except (OSError, ValueError):
+        payload = {"sealed": False, "entries": 0, "access_count": 0}
+    _FRAG_STATUS_CACHE["mtime"] = mtime
+    _FRAG_STATUS_CACHE["payload"] = payload
+    return payload
 
 # ---------------------------------------------------------------------------
 # framebuffer
@@ -541,7 +566,7 @@ class Ripperdoc:
     """
 
     TITLE = "RIPPERDOC"
-    PAGES = ("sensors", "pir", "snr")
+    PAGES = ("sensors", "pir", "snr", "frag")
 
     def draw_state(self, frame, t, st):
         page = st.get("ripperdoc_page", "sensors")
@@ -549,6 +574,8 @@ class Ripperdoc:
             self._page_pir(frame, t, st)
         elif page == "snr":
             self._page_snr(frame, t, st)
+        elif page == "frag":
+            self._page_frag(frame, t, st)
         else:
             self._page_sensors(frame, t, st)
 
@@ -559,6 +586,7 @@ class Ripperdoc:
         self._indicator(frame, 39, 12, "SNR", st.get("snr_cm") is not None)
         self._indicator(frame, 85, 12, "TMP", False)
         self._indicator(frame, 2, 26, "BAR", False)
+        self._indicator(frame, 39, 26, "SEAL", bool(_fragment_status().get("sealed")))
         count = st.get("sense_count") or 0
         amiga.draw(frame, f"N{count:03d}", 2, 40, size=8)
         amiga.draw(frame, "G17", 44, 40, size=8)
@@ -600,6 +628,33 @@ class Ripperdoc:
             time.strftime("%H:%M:%S", time.localtime(last))
         amiga.draw(frame, f"L{lt}", 2, 37, size=8)
         amiga.draw(frame, "G22", 2, 46, size=8)
+
+    def _page_frag(self, frame, t, st):
+        amiga.draw(frame, "FRAG", 2, 1, size=8)
+        amiga.draw(frame, "4/4", 99, 1, size=8)
+        frag = _fragment_status()
+        sealed = bool(frag.get("sealed"))
+        self._lock(frame, 8, 16)
+        amiga.draw(frame, "SEALED" if sealed else "GONE", 24, 16, size=8)
+        count = frag.get("entries") or 0
+        access = frag.get("access_count") or 0
+        amiga.draw(frame, f"N{count:03d}", 2, 32, size=8)
+        amiga.draw(frame, f"A{access:03d}", 40, 32, size=8)
+
+    def _lock(self, frame, x, y):
+        """A small padlock glyph, 10 wide x 9 tall."""
+        frame.line(x + 2, y, x + 2, y + 2)      # shackle left
+        frame.line(x + 7, y, x + 7, y + 2)      # shackle right
+        frame.line(x + 2, y, x + 7, y)          # shackle top
+        for yy in range(y + 3, y + 9):          # body
+            for xx in range(x, x + 10):
+                frame.px(xx, yy)
+        for xx in range(x + 4, x + 7):          # keyhole notch
+            frame.px(xx, y + 3, False)
+        frame.px(x + 5, y + 4, False)           # keyhole
+        frame.px(x + 5, y + 5, False)
+        frame.px(x + 5, y + 6, True)
+        frame.px(x + 5, y + 7, True)
 
     def _indicator(self, frame, x, y, label, level):
         w = amiga.width(label, 8) + 8

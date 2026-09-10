@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loa-ring"
-version = "0.6.9"
+version = "0.7.0"
 description = "loa cortex — ring + OLED drivers, moods, expressions, and the HTTP controller for the loa outpost (Raspberry Pi 5)"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = ["spidev>=3.5"]
+dependencies = ["spidev>=3.5", "cryptography>=42"]
 
 [project.optional-dependencies]
-api = ["fastapi>=0.110", "uvicorn>=0.27"]
+api = ["fastapi>=0.110", "uvicorn>=0.27", "cryptography>=42"]
 bench = ["textual>=0.60"]
 
 [project.scripts]
