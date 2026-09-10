@@ -12,6 +12,7 @@ Off-Pi, tests inject a fake reader.
 
 import re
 import subprocess
+import sys
 import threading
 import time
 
@@ -213,6 +214,7 @@ class DHT11:
         self.period = period
         self.chip = chip
         self._stop = threading.Event()
+        self._fails = 0
 
     def _collect(self):
         try:
@@ -298,7 +300,12 @@ class DHT11:
     def tick(self):
         v = self.read()
         if v is None:
+            self._fails += 1
+            if self._fails == 1 or self._fails % 10 == 0:
+                print(f"dht: read failed ({self._fails}x)", file=sys.stderr,
+                      flush=True)
             return
+        self._fails = 0
         temp, hum = v
         now = time.time()
         n = (cortex.get_state().get("temp_count") or 0) + 1
