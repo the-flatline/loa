@@ -220,7 +220,7 @@ class DHT11:
     def _collect(self):
         try:
             import gpiod
-            from gpiod.line import Direction, Value
+            from gpiod.line import Direction, Edge, Value
         except ImportError:
             return None
         chips = [self.chip] if self.chip else list(SNR_CHIPS)
@@ -241,39 +241,49 @@ class DHT11:
         req.set_value(self.gpio, Value.INACTIVE)
         time.sleep(0.02)
         req.release()
-        # sample as input
+        # sample as input with kernel edge detection — timestamps come from
+        # the kernel, immune to GIL jitter from the PIR poller's subprocesses
         req = None
         for path in chips:
             try:
                 req = gpiod.request_lines(
                     path, consumer="loa-dht",
                     config={self.gpio: gpiod.LineSettings(
-                        direction=Direction.INPUT)})
+                        direction=Direction.INPUT,
+                        edge_detection=Edge.BOTH)})
                 break
             except OSError:
                 continue
         if req is None:
             return None
-        pulses = []
+        import select
+        edges = []
         deadline = time.monotonic() + DHT_PULSE_WINDOW
-        # wait for the first low — the response pair or the first bit
-        while req.get_value(self.gpio) == Value.ACTIVE:
-            if time.monotonic() > deadline:
-                req.release()
-                return None
-        while len(pulses) < DHT_MAX_PULSES:
-            while req.get_value(self.gpio) == Value.INACTIVE:
-                if time.monotonic() > deadline:
-                    req.release()
-                    return pulses
-            t0 = time.monotonic_ns()
-            while req.get_value(self.gpio) == Value.ACTIVE:
-                if time.monotonic() > deadline:
-                    break
-            t1 = time.monotonic_ns()
-            pulses.append(t1 - t0)
+        while time.monotonic() < deadline and len(edges) < DHT_MAX_PULSES * 2:
+            r, _, _ = select.select([req.fd], [], [], 0.005)
+            if not r:
+                continue
+            for ev in req.read_edge_events():
+                kind = getattr(ev, "event_type", getattr(ev, "type", None))
+                ts = getattr(ev, "timestamp_ns", getattr(ev, "timestamp", None))
+                rising = None
+                if kind is not None:
+                    try:
+                        rising = int(kind) == 1  # GPIO_V2_LINE_EVENT_RISING
+                    except (TypeError, ValueError):
+                        rising = "RISING" in str(kind)
+                edges.append((rising, ts))
         req.release()
-        return pulses
+        # high durations from rising->falling pairs; stray edges are skipped
+        highs = []
+        i = 0
+        while i < len(edges) - 1:
+            if edges[i][0]:
+                highs.append(edges[i + 1][1] - edges[i][1])
+                i += 2
+            else:
+                i += 1
+        return highs
 
     @staticmethod
     def _decode(pulses):
