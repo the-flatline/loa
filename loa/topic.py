@@ -42,7 +42,9 @@ from .pb import loa_pb2 as pb
 #: reading without clobbering the fields it does not own.
 #: v3: State carries power/faults/frag so a consumer never has to reach back
 #: over HTTP for what the feed should already be telling it.
-SCHEMA_VERSION = 3
+#: v4: State carries the baro trend and series — the website's sparkline was the
+#: last thing still being fetched, and it must not die to make a point.
+SCHEMA_VERSION = 4
 
 #: Where consumers subscribe (the cortex binds this; it must be reachable from
 #: dixie, so it is the LAN interface, not loopback).

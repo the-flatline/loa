@@ -398,6 +398,11 @@ def _attach_body_readouts(msg):
             msg.frag[str(k)] = str(v)
     except Exception:                                           # noqa: BLE001
         pass
+    try:
+        msg.baro_trend = cortex.baro_trend()
+        msg.baro_series.extend(_baro_series())
+    except Exception:                                           # noqa: BLE001
+        pass
     return msg
 
 

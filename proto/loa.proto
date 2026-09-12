@@ -75,6 +75,8 @@ message State {
   map<string, double> power = 26;   // PMIC rails as read on the BODY
   repeated string faults = 27;      // "level|label" per row, worst first
   map<string, string> frag = 28;    // the vault's seal state, as the body sees it
+  optional string baro_trend = 29;  // rising|falling|steady, off the body's samples
+  repeated double baro_series = 30; // the sparkline's points, oldest first
 }
 
 // A frame moved. RAW bytes — protobuf carries them, so no hex, no base64, and
