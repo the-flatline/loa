@@ -640,7 +640,7 @@ class Ripperdoc:
             amiga.draw(frame, "--.-C", 2, 34, size=8)
             self._gauge(frame, 2, 14, 0.0)
             return
-        lo, hi = 10.0, 40.0
+        lo, hi = 5.0, 40.0
         frac = max(0.0, min(1.0, (temp - lo) / (hi - lo)))
         self._gauge(frame, 2, 14, frac)
         amiga.draw(frame, f"{temp:4.1f}C", 2, 34, size=8)
@@ -656,18 +656,17 @@ class Ripperdoc:
         the bulb sits at the left, the stem is the tube, the fill grows from
         the bulb toward the range end. frac 0..1 across the stem.
         """
-        bw, bh = 8, 14
-        # bulb — filled block, rounded top corners
-        for yy in range(y + 1, y + bh):
-            for xx in range(x + 1, x + bw - 1):
-                if yy == y + 1 and (xx == x + 1 or xx == x + bw - 2):
-                    continue
-                frame.px(xx, yy)
-        # stem tube
-        sx, sy, sw, sh = x + bw - 1, y + 3, 98, 8
+        # bulb — filled circle, round like a real thermometer bulb
+        r = 6
+        cx, cy = x + r, y + r + 1
+        for yy in range(cy - r, cy + r + 1):
+            for xx in range(cx - r, cx + r + 1):
+                if (xx - cx) ** 2 + (yy - cy) ** 2 <= r ** 2:
+                    frame.px(xx, yy)
+        # stem tube — meets the bulb's right edge
+        sx, sy, sw, sh = cx + r, y + 3, 96, 8
         frame.line(sx, sy, sx + sw, sy)          # top
         frame.line(sx, sy + sh, sx + sw, sy + sh)  # bottom
-        frame.line(sx, sy, sx, sy + sh)          # left (meets the bulb)
         frame.line(sx + sw, sy, sx + sw, sy + sh)  # right cap
         fill = int(frac * (sw - 2))
         if fill > 0:
