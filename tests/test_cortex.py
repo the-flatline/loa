@@ -1,479 +1,240 @@
-#!/usr/bin/env python3
-"""Cortex + API + daemon smoke tests. No hardware — spidev is absent here,
-so the face degrades to NullDisplay and the ring gets a FakeRing.
+"""cortex — the live state is RAM, and the store is master/slave by class.
 
-Run from the repo root with the venv python:
-    .venv/bin/python tests/test_cortex.py
+These are the rules from the 2026-09-12 conversation, as tests: the state is not
+a database row, a settings change is adopted before it is written, a store that
+cannot take it is a FAULT rather than a silent revert, and records never block
+the tick.
 """
-import os
-import sys
-import tempfile
-import threading
 import time
 
-# Isolate the cortex DB before anything connects.
-os.environ["LOA_CORTEX_DB"] = os.path.join(tempfile.mkdtemp(), "cortex-test.db")
+import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from loa import cortexd, cortex, expressions, moods, face, fault  # noqa: E402
-from loa import ring as ringd  # noqa: E402
-from loa.oled import _wash, render_loop  # noqa: E402
-
-PASS = 0
+from loa import cortex, store
 
 
-def check(name, cond):
-    global PASS
-    assert cond, f"FAIL: {name}"
-    PASS += 1
-    print(f"  ok  {name}")
+@pytest.fixture(autouse=True)
+def clean_body():
+    cortex.reset_for_tests()
+    yield
+    cortex.reset_for_tests()
 
 
-print("== cortex ==")
-cortex.set_state({"mood": "busy", "ring_state": "busy"})
-st = cortex.get_state()
-check("state write/read", st["mood"] == "busy" and st["ring_state"] == "busy")
-cortex.set_state({"pending_event": "scan"})
-check("pending event set", cortex.get_state()["pending_event"] == "scan")
-cortex.clear_event()
-check("pending event cleared", cortex.get_state()["pending_event"] is None)
-cortex.log_event("test", {"n": 1})
-check("history has event", any(e["kind"] == "test" for e in cortex.history(5)))
+def _flushed(secs=2.5):
+    """Let the background flusher run. It wakes every second."""
+    time.sleep(secs)
 
-print("== api ==")
-c = TestClient(cortexd.app)
-r = c.get("/health")
-check("health", r.status_code == 200 and r.json()["ok"] and r.json()["version"])
-r = c.get("/state")
-check("state", r.status_code == 200 and r.json()["mood"]["feeling"] in moods.MOODS)
-r = c.get("/state?history=10")
-check("state history", r.status_code == 200 and len(r.json()["history"]) > 0)
-r = c.get("/twin")
-check("/twin is GONE (frames travel on the topic)",
-      r.status_code == 410 and "subscribe" in r.json()["detail"])
-r = c.get("/state")
-check("state has sensors (honest)", r.json()["sensors"]["available"] is False)
-cortex.set_state({"pressure_hpa": 1026.0, "baro_temp_c": 23.1, "baro_ts": 1.0})
-r = c.get("/state")
-check("state baro block live", r.json()["sensors"]["baro"]["available"] is True
-      and r.json()["sensors"]["baro"]["pressure_hpa"] == 1026.0
-      and r.json()["sensors"]["baro"]["trend"]["dir"]
-      in ("rising", "falling", "steady"))
-r = c.get("/state")
-check("state carries weather (the human door stays)",
-      r.json()["sensors"]["baro"]["pressure_hpa"] == 1026.0
-      and r.json()["sensors"]["temp_c"] is None
-      and r.json()["sensors"]["baro"]["trend"]["dir"]
-      in ("rising", "falling", "steady"))
 
-for mood in moods.MOODS:
-    r = c.post("/feel", json={"feeling": mood})
-    check(f"feel {mood}", r.status_code == 200 and r.json()["ok"])
+# -- the state is RAM ------------------------------------------------------ #
+
+def test_state_is_ram_not_a_row():
+    """No store at all, and the body still answers about itself."""
+    cortex.boot(None)
+    cortex.set_state({"mood": "pleased", "page": "power"})
     st = cortex.get_state()
-    m = moods.MOODS[mood]
-    if m["ring"] in ("home", "busy", "alarm"):
-        check(f"  ring sustained {mood}", st["ring_state"] == m["ring"]
-              and st["pending_event"] is None)
-    else:
-        check(f"  ring event {mood}", st["pending_event"] == m["ring"])
-    check(f"  oled {mood}", st["oled_mode"] == m["oled"]["mode"])
-
-r = c.post("/feel", json={"feeling": "nope"})
-check("bad feel 400", r.status_code == 400)
-
-r = c.post("/express", json={"expression": "happy"})
-check("express named", r.status_code == 200
-      and cortex.get_state()["oled_mode"] == "text"
-      and cortex.get_state()["expression"] == "happy")
-r = c.post("/express", json={"expression": "custom", "text": "HELLO"})
-check("express custom", r.status_code == 200
-      and cortex.get_state()["oled_text"] == "HELLO")
-r = c.post("/express", json={"expression": "custom"})
-check("custom without text 400", r.status_code == 400)
-r = c.post("/express", json={"expression": "nope"})
-check("bad express 400", r.status_code == 400)
-
-r = c.post("/ring", json={"state": "scan"})
-check("ring scan event", r.status_code == 200
-      and cortex.get_state()["pending_event"] == "scan")
-cortex.clear_event()
-r = c.post("/ring", json={"state": "busy"})
-check("ring busy sustained", r.status_code == 200
-      and cortex.get_state()["ring_state"] == "busy")
-cortex.set_state({"ring_state": "home"})
-r = c.post("/ring", json={"state": "bogus"})
-check("bad ring 400", r.status_code == 400)
-
-r = c.post("/display", json={"mode": "ecg"})
-check("display ecg", r.status_code == 200
-      and cortex.get_state()["oled_mode"] == "ecg")
-r = c.post("/display", json={"mode": "showoff"})
-check("display showoff", r.status_code == 200
-      and cortex.get_state()["oled_mode"] == "showoff")
-r = c.post("/display", json={"mode": "text", "text": "TEST", "dim": True})
-check("display text dim", r.status_code == 200
-      and cortex.get_state()["oled_text"] == "TEST"
-      and cortex.get_state()["oled_dim"] is True)
-r = c.post("/display", json={"mode": "bogus"})
-check("bad display 400", r.status_code == 400)
-
-print("== oled animations (no hardware) ==")
-fb = face.Frame()
-for name, maker in [("scope", face.Scope), ("ecg", face.ECG),
-                    ("ripple", face.Ripple), ("noise", face.Noise),
-                    ("text", lambda: face.Marquee("THE OLD GIRL")),
-                    ("showoff", face.Showoff)]:
-    fb.clear()
-    # A time-based animation needs a window, not an instant. Showoff cycles
-    # through blank phases, so a single sample can catch it idle and read as a
-    # broken renderer — it did, and failed a green suite at random.
-    drew = False
-    t0 = time.time()
-    for i in range(24):
-        fb.clear()
-        maker().draw(fb, t0 + i * 0.25)
-        if sum(fb.buf) > 0:
-            drew = True
-            break
-    check(f"oled {name} draws pixels", drew)
-
-print("== oled daemon smoke ==")
-render_loop(max_frames=10)
-check("oled daemon runs (NullDisplay)", True)
-
-print("== pixel wash provable coverage ==")
-
-class RecordingDisplay:
-    def __init__(self):
-        self.frames = []
-    def clear(self):
-        pass
-    def set_contrast(self, v):
-        pass
-    def show(self, buf, offset=None):
-        self.frames.append(bytes(buf))
-    def close(self):
-        pass
-
-rec = RecordingDisplay()
-wash_frame = face.Frame()
-_wash(rec, wash_frame, 1.0)                      # blink window 0.4s: ON then OFF
-check("wash drives every pixel ON", any(all(b == 0xFF for b in f) for f in rec.frames))
-check("wash drives every pixel OFF", any(all(b == 0x00 for b in f) for f in rec.frames))
-
-print("== presence daemon loops (FakeRing) ==")
+    assert st["mood"] == "pleased"
+    assert st["page"] == "power"
 
 
-class FakeRing:
-    def __init__(self):
-        self.shows = 0
-
-    def show(self, frame):
-        self.shows += 1
-
-    def close(self):
-        pass
+def test_get_state_is_a_copy():
+    """Holding the state must not be a way to change the body."""
+    cortex.boot(None)
+    st = cortex.get_state()
+    st["mood"] = "mutinous"
+    assert cortex.get_state()["mood"] == "calm"
 
 
-ring = FakeRing()
-
-cortex.set_state({"ring_state": "busy"})
-t = threading.Thread(target=lambda: ringd.busy(ring))
-t.start()
-time.sleep(0.2)
-cortex.set_state({"ring_state": "home"})
-t.join(timeout=3)
-check("busy loop exits on state change", not t.is_alive() and ring.shows > 0)
-
-cortex.set_state({"ring_state": "home", "pending_event": "scan"})
-t = threading.Thread(target=lambda: ringd.one_scan(ring))
-t.start()
-time.sleep(0.2)
-cortex.set_state({"ring_state": "busy"})
-t.join(timeout=3)
-check("scan loop aborts on state change", not t.is_alive())
-
-cortex.set_state({"ring_state": "alarm"})
-t = threading.Thread(target=lambda: ringd.alarm(ring))
-t.start()
-time.sleep(0.2)
-cortex.set_state({"ring_state": "home"})
-t.join(timeout=3)
-check("alarm loop exits on state change", not t.is_alive())
-
-print("== sense daemon (fake reader) ==\n")
-
-from loa import sense as sense_mod  # noqa: E402
+def test_unknown_keys_are_ignored():
+    cortex.boot(None)
+    cortex.set_state({"nonsense": 1, "mood": "calm"})
+    assert "nonsense" not in cortex.get_state()
 
 
-class FakeReader:
-    def __init__(self, levels):
-        self.levels = list(levels)
-        self.i = 0
+# -- master class: settings ------------------------------------------------ #
 
-    def __call__(self, gpio):
-        v = self.levels[min(self.i, len(self.levels) - 1)]
-        self.i += 1
-        return v
-
-
-fired = []
-p = sense_mod.SensePoller(gpio=17, cooldown=0.0,
-                          reader=FakeReader([False, True, True]),
-                          fire=lambda: fired.append("motion"))
-p.tick(); p.tick(); p.tick()
-check("sense fires on debounced rising edge", fired == ["motion"])
-
-fired.clear()
-p2 = sense_mod.SensePoller(gpio=17, cooldown=10.0,
-                           reader=FakeReader([False, True, True, False, True, True]),
-                           fire=lambda: fired.append("motion"))
-for _ in range(6):
-    p2.tick()
-check("sense cooldown suppresses refire", fired == ["motion"])
-
-# default fire path: writes cortex state + event
-cortex.set_state({"ring_state": "home", "pending_event": None})
-p3 = sense_mod.SensePoller(gpio=17, cooldown=0.0,
-                           reader=FakeReader([False, True, True]))
-p3.tick(); p3.tick(); p3.tick()
-check("sense motion sets scan event",
-      cortex.get_state()["pending_event"] == "scan")
-check("sense motion logged",
-      any(e["kind"] == "sense" for e in cortex.history(5)))
-
-# stopwatch: rising edge starts pir_on_ts, falling edge latches hold
-cortex.set_state({"pir_high": 0, "pir_on_ts": None, "pir_last_hold": 0.0})
-p5 = sense_mod.SensePoller(gpio=17, cooldown=0.0,
-                           reader=FakeReader([False, True, True, False]))
-p5.tick(); p5.tick(); p5.tick()
-st = cortex.get_state()
-check("sense rising edge starts timer", st["pir_high"] is True
-      and st["pir_on_ts"] is not None)
-p5.tick()
-st = cortex.get_state()
-check("sense falling edge latches hold", st["pir_high"] is False
-      and st["pir_on_ts"] is None and st["pir_last_hold"] >= 0.0)
-
-# sonar: a fake measure feeds distance into the cortex
-cortex.set_state({"snr_cm": None, "snr_ts": None, "snr_count": 0})
-s = sense_mod.Sonar(trig=23, echo=22, period=0.0, measure=lambda: 42.5)
-s.tick()
-st = cortex.get_state()
-check("sonar writes distance + count", st["snr_cm"] == 42.5
-      and st["snr_count"] == 1 and st["snr_ts"] is not None)
-s2 = sense_mod.Sonar(trig=23, echo=22, period=0.0, measure=lambda: None)
-s2.tick()
-st = cortex.get_state()
-check("sonar no-read leaves state", st["snr_cm"] == 42.5
-      and st["snr_count"] == 1)
-# boot resets the N counters
-cortex.set_state({"sense_count": 9, "snr_count": 9})
-sense_mod.main = lambda: None  # don't run the daemon
-check("sonar class exists for ripperdoc", hasattr(sense_mod, "Sonar"))
-
-# baro: BMP180 compensation regression — the live chip values read on the
-# bench 09-12 (cal EEPROM of the replacement XC3702 sitting at 1026.0 hPa /
-# 23.1°C). If this drifts, the datasheet math broke.
-_cal = (8687, -1183, -14304, 33899, 25081, 20813, 6515, 47,
-        -32768, -11786, 2771)
-_t, _p = sense_mod.BMP180._compensate(_cal, 29108, 43654)
-check("baro compensation matches live chip", round(_t, 1) == 23.1
-      and round(_p / 100.0, 1) == 1026.0)
-
-print("== baro trend ==\n")
-
-# pure trend math — synthetic series, no database
-now = 1_000_000.0
-pairs = [(now - 3 * 3600 + i * 600, 1013.0 + i * 0.2) for i in range(19)]
-tr = cortex._trend_from_samples(pairs, now, 3 * 3600)
-check("trend rising detected", tr["dir"] == "rising"
-      and tr["slope_hpa_per_h"] > 0.9)
-flat = [(now - i * 600, 1013.0) for i in range(19)]
-tr2 = cortex._trend_from_samples(flat, now, 3 * 3600)
-check("trend flat reads steady", tr2["dir"] == "steady")
-down = [(now - 3 * 3600 + i * 600, 1020.0 - i * 0.2) for i in range(19)]
-tr3 = cortex._trend_from_samples(down, now, 3 * 3600)
-check("trend falling detected", tr3["dir"] == "falling")
-tr4 = cortex._trend_from_samples([], now, 3 * 3600)
-check("trend no samples steady", tr4["dir"] == "steady")
-
-# telemetry storage + db-backed trend — runs BEFORE the daemon tick test
-# so the table only holds these three synthetic samples
-rnow = time.time()
-cortex.baro_sample(1013.0, 21.0, rnow - 100)
-cortex.baro_sample(1013.5, 21.1, rnow - 50)
-cortex.baro_sample(1014.0, 21.2, rnow)
-rows = cortex.baro_samples(since=rnow - 200)
-check("baro samples stored", len(rows) == 3 and rows[-1][1] == 1014.0)
-rows2 = cortex.baro_samples(since=rnow - 60)
-check("baro samples windowed", len(rows2) == 2)
-tr5 = cortex.baro_trend(window_s=3 * 3600, now=rnow)
-check("baro trend from db", tr5["dir"] == "rising")
-
-cortex.set_state({"pressure_hpa": None, "baro_temp_c": None,
-                  "baro_ts": None, "baro_count": 0})
-_b = sense_mod.BMP180(period=0.0, reader=lambda: (23.1, 102600.0))
-_b.tick()
-st = cortex.get_state()
-check("baro tick writes pressure + count", st["pressure_hpa"] == 1026.0
-      and st["baro_temp_c"] == 23.1 and st["baro_count"] == 1
-      and st["baro_ts"] is not None)
-_b2 = sense_mod.BMP180(period=0.0, reader=lambda: None)
-_b2.tick()
-st = cortex.get_state()
-check("baro no-read leaves state", st["pressure_hpa"] == 1026.0
-      and st["baro_count"] == 1)
-
-print("== ripperdoc mode ==\n")
-
-r = c.post("/ripperdoc", json={"on": True})
-check("ripperdoc on", r.status_code == 200 and r.json()["ripperdoc"] is True
-      and cortex.get_state()["ripperdoc"] is True
-      and cortex.get_state()["oled_mode"] == "ripperdoc")
-r = c.get("/state")
-check("state reports ripperdoc + sense",
-      r.json()["ripperdoc"] is True and "sense" in r.json())
-r = c.post("/ripperdoc", json={"on": False})
-check("ripperdoc off restores scope",
-      r.status_code == 200 and cortex.get_state()["oled_mode"] == "scope"
-      and cortex.get_state()["ripperdoc"] is False)
-r = c.post("/ripperdoc", json={"page": "pir"})
-check("ripperdoc page switch",
-      r.status_code == 200 and r.json()["page"] == "pir"
-      and cortex.get_state()["ripperdoc_page"] == "pir")
-r = c.post("/ripperdoc", json={"page": "snr"})
-check("ripperdoc snr page switch",
-      r.status_code == 200 and r.json()["page"] == "snr"
-      and cortex.get_state()["ripperdoc_page"] == "snr")
-r = c.post("/ripperdoc", json={"page": "bogus"})
-check("bad ripperdoc page 400", r.status_code == 400)
-r = c.post("/ripperdoc", json={"page": "sensors"})
-check("ripperdoc back to sensors", r.status_code == 200
-      and cortex.get_state()["ripperdoc_page"] == "sensors")
-
-print("== ripperdoc face (no hardware) ==")
-
-fb.clear()
-rd = face.Ripperdoc()
-rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 0,
-                          "sense_ts": None})
-off_buf = bytes(fb.buf)
-check("ripperdoc outline draws", sum(off_buf) > 0)
-fb.clear()
-rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
-                          "sense_ts": 96.8})
-on_buf = bytes(fb.buf)
-check("ripperdoc solid when high", sum(on_buf) > sum(off_buf))
-fb.clear()
-rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
-                          "sense_ts": 96.8, "snr_cm": None,
-                          "ripperdoc_page": "sensors"})
-snr_off = bytes(fb.buf)
-fb.clear()
-rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
-                          "sense_ts": 96.8, "snr_cm": 42.0,
-                          "ripperdoc_page": "sensors"})
-snr_on = bytes(fb.buf)
-check("snr indicator lit when enabled", sum(snr_on) > sum(snr_off))
-fb.clear()
-rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
-                          "sense_ts": 96.8, "ripperdoc_page": "sensors"})
-from loa import amiga  # noqa: E402
-amiga.draw(fb, rd.TITLE, 2, 1, size=8)
-check("amiga font draws", sum(fb.buf) > 0)
-fb.clear()
-rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
-                          "sense_ts": 96.8, "ripperdoc_page": "pir"})
-check("ripperdoc pir page draws", sum(fb.buf) > 0)
-fb.clear()
-rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
-                          "sense_ts": 96.8, "ripperdoc_page": "pir"})
-pir_off = bytes(fb.buf)
-fb.clear()
-rd.draw_state(fb, 100.0, {"pir_high": True, "sense_count": 7,
-                          "sense_ts": 96.8, "ripperdoc_page": "pir"})
-pir_on = bytes(fb.buf)
-check("pir detail page shows the light", sum(pir_on) > sum(pir_off))
-fb.clear()
-rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
-                          "sense_ts": 96.8, "ripperdoc_page": "snr",
-                          "snr_cm": 42.5, "snr_count": 3, "snr_ts": 96.8})
-check("ripperdoc snr page draws with distance", sum(fb.buf) > 0)
-fb.clear()
-rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
-                          "sense_ts": 96.8, "ripperdoc_page": "snr",
-                          "snr_cm": None, "snr_count": 0, "snr_ts": None})
-check("ripperdoc snr page draws no-read", sum(fb.buf) > 0)
-fb.clear()
-rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
-                          "sense_ts": 96.8, "ripperdoc_page": "frag"})
-frag_buf = bytes(fb.buf)
-check("ripperdoc frag page draws", sum(frag_buf) > 0)
-check("ripperdoc frag page has lock + text pixels",
-      sum(frag_buf) > 0 and len(frag_buf) == len(off_buf))
+def test_settings_are_flushed_to_the_store():
+    s = store.MemoryStore()
+    cortex.boot(s)
+    cortex.set_state({"ring_state": "alarm", "mood": "alarmed"})
+    _flushed()
+    assert s.settings["ring_state"] == "alarm"
+    assert s.settings["mood"] == "alarmed"
+    assert cortex.db_down() is False
 
 
-def px_on(buf, x, y):
-    return bool(buf[(y >> 3) * 128 + x] & (1 << (y & 7)))
+def test_settings_come_back_at_boot():
+    """The one place the store is authoritative: the body waking up."""
+    s = store.MemoryStore()
+    s.settings = {"ring_state": "off", "page": "fault", "snr_on": False}
+    cortex.boot(s)
+    st = cortex.get_state()
+    assert st["ring_state"] == "off"
+    assert st["page"] == "fault"
+    assert st["snr_on"] is False
 
 
-# temp page: pressure value + trend caret (rising apex lit, absent w/o pressure)
-cortex.baro_sample(1013.0, 21.0, time.time() - 200)
-cortex.baro_sample(1013.6, 21.1, time.time() - 100)
-cortex.baro_sample(1014.2, 21.2, time.time())
-fb.clear()
-rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
-                          "sense_ts": 96.8, "ripperdoc_page": "temp",
-                          "temp_c": 23.0, "hum_pct": 50.0,
-                          "pressure_hpa": 1014.2})
-buf_p = bytes(fb.buf)
-cx = 128 - amiga.width("1014HPA", 8) - 8
-check("temp page draws pressure + trend caret",
-      sum(buf_p) > 0 and px_on(buf_p, cx + 3, 45))
-fb.clear()
-rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
-                          "sense_ts": 96.8, "ripperdoc_page": "temp",
-                          "temp_c": 23.0, "hum_pct": 50.0,
-                          "pressure_hpa": None})
-check("temp page no pressure no caret", not px_on(bytes(fb.buf), cx + 3, 45))
-cortex.set_state({"oled_mode": "ripperdoc"})
-render_loop(max_frames=5)
-check("oled daemon renders ripperdoc", True)
-cortex.set_state({"oled_mode": "scope"})
-
-print("== ripperdoc twin (no hardware) ==\n")
-
-from loa import ripperdoc  # noqa: E402
-
-fb = face.Frame()
-fb.px(0, 0)
-art = ripperdoc.oled_art(fb)
-check("oled twin renders pixels", "▀" in art or "█" in art)
-fb.clear()
-check("oled twin blank is blank", ripperdoc.oled_art(fb).strip() == "")
-ring = ripperdoc.ring_art_bytes(bytes([255, 0, 0]) * 24)
-check("ring twin renders markup", "[on rgb(255,0,0)]" in ring)
-check("ring twin dim shape present", "[on rgb(12,16,12)]" in ring)
-check("ring 24 unique ordered slots",
-      len(set(ripperdoc._led_positions())) == 24)
+def test_a_counter_does_not_come_back_at_boot():
+    """It counts THIS boot. A restored count would claim readings that never
+    happened on this body — and would make a fresh boot look busier than it is."""
+    s = store.MemoryStore()
+    s.settings = {"pir_count": 41}
+    cortex.boot(s)
+    assert cortex.get_state()["pir_count"] == 0
 
 
-async def _pilot():
-    app = ripperdoc.RipperdocApp()
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        app.query_one("#status", Static).update("ok")
-        await pilot.pause()
-        app.exit()
+def test_a_change_is_adopted_before_it_is_written():
+    """Hold and flush. A command must not fail because aleph hiccuped."""
+    class Slow(store.MemoryStore):
+        def save_settings(self, values):
+            raise store.StoreUnreachable("aleph is not answering")
+
+    cortex.boot(Slow())
+    cortex.set_state({"mood": "tired"})
+    assert cortex.get_state()["mood"] == "tired"     # adopted immediately
+    _flushed()
+    assert cortex.db_down() is True                  # and reported
 
 
-import asyncio  # noqa: E402
-from textual.widgets import Static  # noqa: E402
-asyncio.run(_pilot())
-check("ripperdoc app boots headless", True)
+def test_no_store_is_db_down_not_silence():
+    cortex.boot(None)
+    _flushed(1.5)
+    assert cortex.db_down() is True
 
-print(f"\nALL {PASS} CHECKS PASSED")
+
+def test_a_store_that_comes_back_clears_the_fault():
+    class Flaky(store.MemoryStore):
+        def __init__(self):
+            super().__init__()
+            self.fail = True
+
+        def save_settings(self, values):
+            if self.fail:
+                raise store.StoreUnreachable("down")
+            super().save_settings(values)
+
+    s = Flaky()
+    cortex.boot(s)
+    cortex.set_state({"mood": "hurt"})
+    _flushed()
+    assert cortex.db_down() is True
+    s.fail = False
+    _flushed(2.5)
+    assert cortex.db_down() is False
+    assert s.settings["mood"] == "hurt"      # held, then written, not lost
+
+
+# -- counters flush on their own timer ------------------------------------- #
+
+def test_a_counter_is_never_written_to_the_store():
+    """Counters count THIS boot — motion.py says so — so restoring one would
+    claim a count the body is not counting. They ride the feed and stay out."""
+    s = store.MemoryStore()
+    cortex.boot(s)
+    for i in range(50):
+        cortex.set_state({"snr_count": i})
+    _flushed(1.5)
+    assert s.settings == {}                # not one write, not fifty
+    assert cortex.get_state()["snr_count"] == 49
+
+
+# -- slave class: records -------------------------------------------------- #
+
+def test_records_are_queued_and_written():
+    s = store.MemoryStore()
+    cortex.boot(s)
+    cortex.log_event("mood", {"feeling": "pleased"}, ts=1234.5)
+    _flushed()
+    assert s.events == [{"ts": 1234.5, "kind": "mood",
+                         "detail": {"feeling": "pleased"}}]
+
+
+def test_records_survive_a_store_that_is_down():
+    """A blip costs a delay, not a hole in the history."""
+    class Flaky(store.MemoryStore):
+        def __init__(self):
+            super().__init__()
+            self.fail = True
+
+        def add_event(self, ts, kind, detail=None):
+            if self.fail:
+                raise store.StoreUnreachable("down")
+            super().add_event(ts, kind, detail)
+
+    s = Flaky()
+    cortex.boot(s)
+    cortex.log_event("fault", {"code": "OLED LOOP"}, ts=1.0)
+    _flushed()
+    assert s.events == []
+    s.fail = False
+    _flushed(2.5)
+    assert s.events and s.events[0]["kind"] == "fault"
+
+
+def test_a_record_keeps_the_time_it_happened():
+    """Not the time it landed. A record with the wrong timestamp is a lie about
+    when something broke."""
+    s = store.MemoryStore()
+    cortex.boot(s)
+    cortex.log_event("boot", {"svc": "cortex"}, ts=99.0)
+    _flushed()
+    assert s.events[0]["ts"] == 99.0
+
+
+def test_record_queue_is_bounded():
+    """An outage must not eat the body's RAM."""
+    cortex.boot(None)
+    for i in range(store.PENDING_RECORDS_MAX + 10):
+        cortex.log_event("tick", {"i": i})
+    assert len(cortex._pending_records) <= store.PENDING_RECORDS_MAX
+
+
+# -- the face's orientation is a setting, not a per-frame transform -------- #
+
+def test_the_orientation_is_persisted():
+    """A face mounted upside down must still be upside down after a reboot, so
+    this is a SETTING: it goes to the store like any other."""
+    assert "oled_flip" in store.SETTING_KEYS
+    assert "oled_flip" in store.PERSISTED
+
+
+def test_the_orientation_defaults_to_the_face_as_wired():
+    """0xA1/0xC8 is how the panel is wired today. The default must be the face
+    Divv already knows — a flip that changes on first boot is a bug."""
+    cortex.boot(None)
+    assert cortex.get_state()["oled_flip"] is True
+
+
+def test_the_orientation_survives_a_round_trip():
+    s = store.MemoryStore()
+    cortex.boot(s)
+    cortex.set_state({"oled_flip": False})
+    _flushed()
+    assert s.settings["oled_flip"] is False
+    cortex.boot(s)                      # as if the body had restarted
+    assert cortex.get_state()["oled_flip"] is False
+
+
+def test_the_panel_is_told_the_orientation_on_the_panel():
+    """Two commands to the SH1106, not a rotated pixel: the bench display
+    records what it was told."""
+    from loa import face
+    d = face.NullDisplay()
+    assert getattr(d, "_flip", None) is None
+    d.set_flip(False)
+    assert d._flip is False
+    d.set_flip(True)
+    assert d._flip is True
+
+
+# -- the trend is computed, not stored as a verdict ------------------------ #
+
+def test_trend_is_steady_without_enough_samples():
+    out = cortex._trend_from_samples([], time.time(), 3600)
+    assert out["dir"] == "steady"
+
+
+def test_trend_reads_rising_from_synthetic_samples():
+    now = time.time()
+    pairs = [(now - 1800 + i * 60, 1010.0 + i * 0.5) for i in range(30)]
+    out = cortex._trend_from_samples(pairs, now, 3600)
+    assert out["dir"] == "rising"
+    assert out["slope_hpa_per_h"] > 0

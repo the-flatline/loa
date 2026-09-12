@@ -48,17 +48,25 @@ MOODS = {
 }
 
 
-def apply_ring(cortex, target):
-    """Write a ring target into cortex state.
+#: A one-shot the ring plays once and forgets. It is a RECORD, not a flag.
+ONESHOT_RING = ("scan", "glitch")
 
-    Sustained states (home/busy/alarm) set ring_state and drop any pending
-    event. Events (scan/glitch) set pending_event; the daemon fires them
-    once when the ring is home, then clears.
+
+def apply_ring(cortex, target):
+    """A ring target.
+
+    Sustained states (home/busy/alarm) are STATE: the ring holds them until it
+    is told otherwise. One-shots (scan/glitch) are RECORDS: they ride the event
+    topic and the ring plays the newest one it has not played. They used to be a
+    `pending_event` flag in the state that the ring daemon CLEARED — a daemon
+    writing another service's state, which is exactly what this design removes,
+    and which silently ate a second one-shot that arrived before the first was
+    cleared.
     """
-    if target in ("home", "busy", "alarm"):
-        cortex.set_state({"ring_state": target, "pending_event": None})
+    if target in ONESHOT_RING:
+        cortex.log_event("ring", {"state": target})
     else:
-        cortex.set_state({"pending_event": target})
+        cortex.set_state({"ring_state": target})
 
 
 def oled_state_for(mood):

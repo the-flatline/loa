@@ -88,26 +88,24 @@ class Ring:
         self.spi.writebytes2(list(buf))
         self._publish(frame)
 
+    #: Where the frames go. Set by the daemon (loa-ring) to put them on the
+    #: topic; the driver itself stays ignorant of the wire, and a bench run with
+    #: no daemon simply has no sink. The old path was a file in /dev/shm that a
+    #: consumer read behind the publisher's back — a second data path wearing a
+    #: mirror's clothes.
+    frame_sink = None
+
     def _publish(self, frame) -> None:
-        """Publish the exact display values to /dev/shm/loa-ring.bin (72B).
-
-        The retained topic of the loa frame bus — RAM-backed (tmpfs), zero
-        flash writes. presence publishes, the bench TUI (and any future
-        subscriber) reads the last value. Ephemeral by nature: it republishes
-        the moment the daemon runs. Config/cortex.db stay on disk; a live
-        mirror does not.
-
-        Opens fresh every frame like the OLED topic: a deleted or cleaned
-        file is recreated on the next publish instead of writing to a stale
-        fd that no longer exists in the directory.
-        """
+        """Hand the exact display values (72B, 24 px RGB) to the sink."""
+        sink = self.frame_sink
+        if sink is None:
+            return
         try:
             raw = bytearray()
             for color in frame:
                 r, g, b = parse_color(color)
                 raw += bytes((int(r), int(g), int(b)))
-            with open("/dev/shm/loa-ring.bin", "wb") as f:
-                f.write(raw)
+            sink(bytes(raw))
         except Exception:
             pass
 

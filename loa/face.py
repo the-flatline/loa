@@ -492,6 +492,11 @@ class NullDisplay:
     def set_contrast(self, val):
         pass
 
+    def set_flip(self, flipped):
+        """No panel here, so the orientation is just remembered — but it IS
+        remembered, so the bench can check the setting reaches the display."""
+        self._flip = bool(flipped)
+
     def close(self):
         pass
 
@@ -540,10 +545,14 @@ class SH1106:
         self._pin(self.res, 1)
         time.sleep(0.05)
         for c in (0xAE, 0xD5, 0x80, 0xA8, 0x3F, 0xD3, 0x00, 0x40,
-                  0x8D, 0x14, 0x20, 0x00, 0xA1, 0xC8, 0xDA, 0x12,
+                  0x8D, 0x14, 0x20, 0x00, 0xDA, 0x12,
                   0x81, 0xCF, 0xD9, 0xF1, 0xDB, 0x40, 0xA4, 0xA6,
                   0x2E, 0xAF):
             self._cmd(c)
+        # The orientation is NOT part of the init any more: it is a setting,
+        # applied through set_flip() so there is one place that decides it.
+        self._flip = None
+        self.set_flip(True)
 
     def show(self, buf, offset=None):
         off = self.offset if offset is None else offset
@@ -553,6 +562,31 @@ class SH1106:
 
     def set_contrast(self, val):
         self._cmd(0x81, max(0, min(255, int(val))))
+
+    #: The panel's two orientations. 0xA1 (segment remap) + 0xC8 (COM scan
+    #: reversed) is how the face is wired today; 0xA0 + 0xC0 is the same face
+    #: turned 180 degrees.
+    FLIP_ON = (0xA1, 0xC8)
+    FLIP_OFF = (0xA0, 0xC0)
+
+    def set_flip(self, flipped):
+        """Turn the face 180 degrees — on the PANEL, not in software.
+
+        The SH1106 does it in two commands, so a rotated face costs nothing per
+        frame and draws the identical picture; doing it in the renderer would
+        cost CPU on every frame including the wash, on a board that has already
+        been to its thermal limit for less.
+
+        The panel cannot be read back, so the state is remembered here. Called
+        at startup with the setting, so the glass always matches the setting
+        rather than whatever the last process left behind.
+        """
+        flipped = bool(flipped)
+        if flipped == getattr(self, "_flip", None):
+            return
+        for c in (self.FLIP_ON if flipped else self.FLIP_OFF):
+            self._cmd(c)
+        self._flip = flipped
 
     def clear(self):
         self.show(bytearray(PAGES * WIDTH))
@@ -655,7 +689,7 @@ class Ripperdoc:
     PAGES = ("sensors", "pir", "snr", "temp", "frag", "power", "fault")
 
     def draw_state(self, frame, t, st):
-        page = st.get("ripperdoc_page", "sensors")
+        page = st.get("page", "sensors")
         if page == "pir":
             self._page_pir(frame, t, st)
         elif page == "snr":

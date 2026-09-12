@@ -1,104 +1,99 @@
-"""A daemon's reading goes on the topic and reaches a subscriber.
+"""ingest — readings arriving by topic get merged into the body's state.
 
-The bug this exists to prevent: the daemons are separate processes and once
-wrote the sqlite file directly, so the cortex's publisher never saw their
-changes and the feed carried NOTHING from the senses. Divv was rightly furious
-— "why is data arriving via /state and not the pub/sub I insisted on" — and the
-answer was that the feed was empty and I had called it built.
-
-Also the merge rule: a reading carries only the fields its daemon measured. A
-motion daemon publishing pir_high=false must not clobber the mood.
+The daemons no longer write the cortex's database; they PUBLISH on their own
+topic and this is the half that reads them back. What it must not do is let one
+daemon's message clobber a field it never measured — merging is by PRESENCE, and
+these tests are the proof.
 """
-import sqlite3
 import time
 
-from loa import cortex, cortexd, topic
+import pytest
+
+from loa import cortex, cortexd, store, topic
 
 
-def _wait_for(predicate, timeout=3.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        if predicate():
+@pytest.fixture
+def body():
+    cortex.reset_for_tests()
+    cortex.boot(store.MemoryStore())
+    rx, stop = cortexd.start_ingesting(endpoint="inproc://ingest")
+    tx = topic.Sender(endpoint="inproc://ingest")
+    topic.wait_for_subscribers(0.3)
+    yield tx
+    stop()
+    tx.close()
+    rx.close()
+    cortex.reset_for_tests()
+
+
+def _settle(field, timeout=3.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if cortex.get_state().get(field) not in (None, 0, False):
             return True
-        time.sleep(0.05)
+        time.sleep(0.02)
     return False
 
 
-def test_a_reading_reaches_a_subscriber_without_clobbering_the_state(
-        fresh_db, clean_publishers):
-    inbox, outbox = "inproc://t-in", "inproc://t-out"
-    cortex.set_state({"mood": "busy", "oled_mode": "scope"})
-
-    cortexd.start_publishing(endpoint=outbox)
-    _rx, stop = cortexd.start_ingesting(endpoint=inbox)
-    try:
-        sub = topic.Subscriber(endpoints=[outbox])
-        tx = topic.Sender(endpoint=inbox)
-        topic.wait_for_subscribers(None, 0.2)
-
-        tx.send_state({"pir_high": False, "sense_count": 7})
-
-        env = sub.recv(3000)
-        assert env is not None, "a daemon's reading never reached the feed"
-        assert env.WhichOneof("body") == "state"
-        assert env.state.sense_count == 7, "the reading did not arrive intact"
-        assert env.state.mood == "busy", (
-            "a motion reading clobbered the mood — the merge is not by presence")
-        assert env.state.oled_mode == "scope", "a partial reading wiped oled_mode"
-
-        assert cortex.get_state()["mood"] == "busy"
-        assert not cortex.get_state()["pir_high"]
-        sub.close(); tx.close()
-    finally:
-        stop()
+def test_a_reading_lands_in_the_state(body):
+    body.send("sonar", topic.partial("sonar", {"snr_cm": 41.0, "snr_count": 3}))
+    assert _settle("snr_cm"), "the ingest never merged the sonar reading"
+    st = cortex.get_state()
+    assert st["snr_cm"] == 41.0
+    assert st["snr_count"] == 3
 
 
-def test_a_pir_going_true_then_false_is_both_published(fresh_db, clean_publishers):
-    """false is a reading, not a silence. Without explicit presence the false
-    would be indistinguishable from 'not mentioned' and the body would stay lit
-    after the room went quiet."""
-    inbox, outbox = "inproc://t2-in", "inproc://t2-out"
-    cortexd.start_publishing(endpoint=outbox)
-    _rx, stop = cortexd.start_ingesting(endpoint=inbox)
-    try:
-        sub = topic.Subscriber(endpoints=[outbox])
-        tx = topic.Sender(endpoint=inbox)
-        topic.wait_for_subscribers(None, 0.2)
-
-        tx.send_state({"pir_high": True})
-        env = sub.recv(3000)
-        assert env is not None and env.state.pir_high is True
-
-        tx.send_state({"pir_high": False})
-        env = sub.recv(3000)
-        assert env is not None, "the PIR going quiet published nothing"
-        assert env.state.pir_high is False
-        sub.close(); tx.close()
-    finally:
-        stop()
+def test_a_reading_does_not_clobber_what_it_never_measured(body):
+    """The failure presence exists to prevent: a sonar ping carrying nothing
+    about the PIR must not zero the PIR."""
+    cortex.set_state({"pir_high": True})
+    body.send("sonar", topic.partial("sonar", {"snr_cm": 12.0}))
+    assert _settle("snr_cm")
+    assert cortex.get_state()["pir_high"] is True
 
 
-def test_a_daemon_event_becomes_a_record(fresh_db, clean_publishers):
-    """Events go both ways: subscribers see them live, the recorder writes
-    them. The cortex is neither the only reader nor the only writer."""
-    inbox = "inproc://t3-in"
-    _rx, stop = cortexd.start_ingesting(endpoint=inbox)
-    try:
-        tx = topic.Sender(endpoint=inbox)
-        tx.send_event(1789200000.0, "sense", {"kind": "pir", "count": "3"})
+def test_two_topics_merge_into_one_body(body):
+    body.send("pir", topic.partial("pir", {"pir_high": True, "pir_count": 9}))
+    body.send("weather", topic.partial("weather", {"temp_c": 19.5}))
+    assert _settle("pir_count") and _settle("temp_c")
+    st = cortex.get_state()
+    assert st["pir_high"] is True
+    assert st["pir_count"] == 9
+    assert st["temp_c"] == 19.5
 
-        def recorded():
-            try:
-                return sqlite3.connect(str(fresh_db)).execute(
-                    "select count(*) from events").fetchone()[0] == 1
-            except sqlite3.OperationalError:
-                return False
 
-        assert _wait_for(recorded), "a published event was never recorded"
-        row = sqlite3.connect(str(fresh_db)).execute(
-            "select ts, kind, detail from events").fetchone()
-        assert row[0] == 1789200000.0, "recorded when it happened, not when it landed"
-        assert "pir" in row[2]
-        tx.close()
-    finally:
-        stop()
+def test_a_baro_reading_becomes_a_stored_sample(body):
+    """The driver does not write the store — it publishes, and the cortex
+    records. That keeps one writer for the store."""
+    s = store.MemoryStore()
+    cortex.set_store(s)
+    body.send("baro", topic.partial("baro", {"pressure_hpa": 1012.5,
+                                             "baro_temp_c": 20.0,
+                                             "baro_ts": 1234.0}))
+    deadline = time.time() + 3
+    while time.time() < deadline and not s.baro_samples():
+        time.sleep(0.05)
+    assert s.baro_samples(), "the cortex never recorded the baro sample"
+    assert s.baro_samples()[-1][1] == pytest.approx(1012.5)
+
+
+def test_a_record_arrives_as_a_record(body):
+    s = store.MemoryStore()
+    cortex.set_store(s)
+    body.send("event", topic.event(time.time(), "sense",
+                                   {"svc": "motion", "gpio": 17}))
+    deadline = time.time() + 4
+    while time.time() < deadline and not s.events:
+        time.sleep(0.05)
+    assert s.events, "the record never reached the store"
+    assert s.events[0]["kind"] == "sense"
+
+
+def test_a_stale_schema_from_a_daemon_is_refused_loudly(body):
+    """An old daemon left running must not be able to poison the state."""
+    from loa.pb import loa_pb2 as pb
+    stale = pb.Envelope(schema_version=topic.SCHEMA_VERSION - 1)
+    stale.sonar.cm = 99.0
+    body.sock.send_multipart([b"sonar", stale.SerializeToString()])
+    time.sleep(0.4)
+    assert cortex.get_state()["snr_cm"] is None, "a stale message got through"

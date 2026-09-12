@@ -53,22 +53,33 @@ _HI = re.compile(r"\bhi\b")
 #
 # The drivers stay ignorant of the wire: they call publish(), and how it leaves
 # is whoever claimed it.
-_PUBLISH = None
-_PUBLISH_EVENT = None
+_SENDERS = {}
+_TOPIC = None
 
 
-def use_topic(endpoint=None):
-    """Send readings over the topic instead of into the database.
+def sender_for(topic, endpoint=None):
+    """One Sender per topic, made on first use and kept for the process."""
+    sock = _SENDERS.get(topic)
+    if sock is None:
+        from .topic import Sender
+        sock = _SENDERS[topic] = Sender(
+            **({"endpoint": endpoint} if endpoint else {}))
+    return sock
 
-    Called once at daemon startup. Returns the Sender so a daemon that wants to
-    publish frames as well can hold on to it.
+
+def use_topic(topic, endpoint=None):
+    """Claim a topic. This daemon's readings go out on it from now on.
+
+    Called once at daemon startup with the topic this daemon is the source of —
+    "pir", "sonar", "weather", "baro". A daemon owns a topic the way it owns a
+    sensor: one source, and the reading goes out under the name the ingest reads.
+
+    Returns the Sender, so a daemon that publishes more than readings (the face,
+    the ring) can hold on to it.
     """
-    from .topic import Sender
-    global _PUBLISH, _PUBLISH_EVENT
-    sock = Sender(**({"endpoint": endpoint} if endpoint else {}))
-
-    def _state(fields):
-        sock.send_state(fields)
+    global _TOPIC
+    _TOPIC = topic
+    return sender_for(topic, endpoint)
 
     def _event(ts, kind, detail):
         sock.send_event(ts, kind, detail)
@@ -77,22 +88,30 @@ def use_topic(endpoint=None):
     return sock
 
 
-def publish(fields):
-    """A reading. On the topic when a daemon has claimed it, else the database.
+def publish(fields, topic=None):
+    """A reading. On its topic when a daemon has claimed one, else the database.
 
-    The fallback is not dead code: the bench runs these drivers directly with a
-    single process and no topic, and that must keep working."""
-    if _PUBLISH is not None:
-        _PUBLISH(fields)
-    else:
-        cortex.set_state(fields)
+    `topic` is for a process that hosts more than one source — loa-weather
+    carries the weather board AND the baro, and each reading should arrive under
+    its own name. The driver knows what it measured, so the driver says.
+
+    The database fallback is not dead code: the bench runs these drivers directly
+    in one process with no topic, and that must keep working."""
+    where = topic or _TOPIC
+    if where is None:
+        return cortex.set_state(fields)
+    from .topic import partial
+    sender_for(where).send(where, partial(where, fields))
 
 
 def publish_event(kind, detail=None, ts=None):
-    if _PUBLISH_EVENT is not None:
-        _PUBLISH_EVENT(time.time() if ts is None else ts, kind, detail)
-    else:
-        cortex.log_event(kind, detail, ts=ts)
+    """A record. Always the `event` topic — see topic.event()."""
+    if _TOPIC is None:
+        return cortex.log_event(kind, detail, ts=ts)
+    from .topic import event as _event
+    sender_for("event").send("event",
+                             _event(time.time() if ts is None else ts,
+                                    kind, detail))
 
 
 def pinctrl_reader(gpio):
@@ -499,10 +518,18 @@ class BMP180:
         self._fails = 0
         temp_c, pa = v
         now = time.time()
-        n = (cortex.get_state().get("baro_count") or 0) + 1
+        # The driver holds its own count. Reaching into the cortex's state for a
+        # counter is the same cross-service read as reaching for the reading —
+        # and the count is per-boot anyway (see motion.py): a rebooted body
+        # starts at zero, so there is nothing here to ask the body for.
+        n = getattr(self, "_count", 0) + 1
+        self._count = n
+        # The sample is recorded by the CORTEX, not here: the cortex is the only
+        # writer of the store, and a driver reaching into it is the exact
+        # cross-service write this design removes. The reading goes up; the
+        # body's memory is the cortex's business.
         publish({"pressure_hpa": pa / 100.0, "baro_temp_c": temp_c,
-                          "baro_ts": now, "baro_count": n})
-        cortex.baro_sample(pa / 100.0, temp_c, now)
+                 "baro_ts": now, "baro_count": n}, topic="baro")
 
     def run(self):
         while not self._stop.is_set():

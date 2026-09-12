@@ -1,14 +1,37 @@
 // loa — the body's wire contract.
 //
 // ONE schema. loa-cortex publishes these; everything that needs data
-// SUBSCRIBES to the topic. The cortex does not fan out private copies for the
+// SUBSCRIBES to a topic. The cortex does not fan out private copies for the
 // feed, RAM and the DB — that is three things that can drift.
 //
-// If a publisher and a subscriber disagree about the shape, that must FAIL
-// LOUDLY. Never decode into plausible rubbish. That exact failure cost an hour
-// of hunting phantom LEDs on 2026-09-12: a hex-encoded ring frame was base64
-// decoded and produced a right-SIZED, entirely wrong answer, which read as
-// hardware.
+// TOPICS, not shapes (settled with Divv 2026-09-12). A TOPIC is a description
+// of something a consumer can choose to be interested in. "state" and "frames"
+// are SHAPES, not subjects — nobody is interested in "bytes that happen to be
+// pixels". So:
+//
+//     ripperdoc   how the body is presenting itself: the screen and the few
+//                 tiny things a viewer needs to frame it. NOT the data behind
+//                 the screen — if a number is drawn on the glass it arrives as
+//                 glass. Stateless viewer: hold the last frame, draw it.
+//     ring        the ring's pixels, its own interest
+//     pir sonar baro weather   one topic per sensor
+//     power       the chassis: PMIC rails, as read on the body
+//     fault       what hurts, right now
+//     event       something happened — a record
+//
+// Every message rides as TWO ZMQ FRAMES: [topic name][Envelope]. The name is
+// the filter (ZMQ matches a subscription against the leading bytes of the first
+// frame); the Envelope's oneof is the type check. Belt and braces on purpose: a
+// message whose topic and payload disagree must fail loudly, not decode into
+// plausible rubbish. That exact failure cost an hour of hunting phantom LEDs on
+// 2026-09-12 — a hex ring frame base64-decoded into a right-SIZED, entirely
+// wrong answer that read as hardware.
+//
+// EVERY field is `optional` on purpose. A daemon sends only what it measured:
+// without explicit presence, a motion reading carrying pir_high=false is
+// indistinguishable from a message that never mentioned the PIR, and a partial
+// update would silently clobber the fields it does not own with zero values.
+// Presence is what makes "I have a reading for this" sayable.
 //
 // BUMP SCHEMA_VERSION (loa/topic.py) on any change here.
 
@@ -22,72 +45,100 @@ message Envelope {
   uint32 schema_version = 1;
 
   oneof body {
-    State state = 2;   // state changed — the live picture, RAM-shaped
-    Frames frames = 3; // a frame moved — raw bytes, never encoded
-    Event event = 4;   // something happened — a record
+    Ripperdoc ripperdoc = 2;
+    Ring ring = 3;
+    Pir pir = 4;
+    Sonar sonar = 5;
+    Baro baro = 6;
+    Weather weather = 7;
+    Power power = 8;
+    Fault fault = 9;
+    Event event = 10;
   }
 }
 
-// The body's live state.
+// The screen topic. Everything a stateless viewer needs to draw this body.
 //
-// EVERY field is `optional` on purpose. A daemon publishes only what it
-// measured: without explicit presence, a motion reading carrying
-// pir_high=false is indistinguishable from a message that never mentioned the
-// PIR, and a partial update would silently clobber the fields it did not own
-// with zero values. Presence is what makes "I have a reading for this" sayable.
-message State {
-  optional string mood = 1;
-  optional double mood_set_at = 2;
-  optional string ring_state = 3;
-  optional string pending_event = 4;
+// The face bytes are INSIDE this message — one protobuf event, with the raw
+// bytes as a field. The pixels are raw (never hex, never base64), and they need
+// no description, so they need no separate shape and no side-channel.
+//
+// The tiny bits beside the frame are the ones NOT in the pixels: which page the
+// face is on, the mood, the sonar on/off flag, and the presentation fields the
+// body's own renderers (oled, ring) need so they never have to reach back and
+// read the state themselves.
+message Ripperdoc {
+  optional bytes face = 1;      // 1024 B, 1bpp, the panel as driven
+  optional string page = 2;     // currently selected page
+  optional string mood = 3;
+  optional bool snr_on = 4;     // sonar on/off flag
 
-  optional string oled_mode = 5;
-  optional string oled_text = 6;
-  optional bool oled_dim = 7;
-
-  optional bool ripperdoc = 8;
-  optional string ripperdoc_page = 9;
-  optional string condition = 10;
-
-  optional bool pir_high = 11;
-  optional uint32 pir_count = 12;
-  optional double pir_last_ts = 13;
-  optional double pir_last_hold = 14;
-  optional double pir_on_ts = 15;
-
-  optional double snr_cm = 16;
-  optional uint32 snr_count = 17;
-
-  optional double temp_c = 18;
-  optional double hum_pct = 19;
-  optional double temp_ts = 20;
-
-  optional double pressure_hpa = 21;
-  optional double baro_temp_c = 22;
-  optional double baro_ts = 23;
-
-  optional double sense_ts = 24;
-  optional uint32 sense_count = 25;
-
-  // What the console needs but the state row does not carry. These travel on
-  // the feed so a consumer never has to reach back over HTTP for them — that
-  // reach-back is what made a "pub/sub" console secretly a poller.
-  map<string, double> power = 26;   // PMIC rails as read on the BODY
-  repeated string faults = 27;      // "level|label" per row, worst first
-  map<string, string> frag = 28;    // the vault's seal state, as the body sees it
-  optional string baro_trend = 29;  // rising|falling|steady, off the body's samples
-  repeated double baro_series = 30; // the sparkline's points, oldest first
+  optional string ring_state = 5;  // the animation the ring is asked for
+  optional string oled_mode = 6;
+  optional string oled_text = 7;
+  optional bool oled_dim = 8;
+  optional bool ripperdoc = 9;  // the console flag: body in console mode
+  optional string condition = 10;  // well | niggle | hurts
+  optional double ts = 11;
 }
 
-// A frame moved. RAW bytes — protobuf carries them, so no hex, no base64, and
-// nothing to guess at. This is why the encoding is declared in the schema.
-//
-// NOT a consumer and not "the twin". This is the payload: the pixels the body
-// is driving. "The twin" is the whole mirror a consumer assembles — State plus
-// Frames — which is what twin.json used to be.
-message Frames {
-  bytes face = 1;   // 1024 bytes, 1bpp, the panel as driven
-  bytes ring = 2;   // 72 bytes, 24 px RGB, as driven
+// The ring's pixels: 24 px RGB, 72 B. Raw, same reasoning as the face. Its own
+// topic, because wanting the ring is its own interest.
+message Ring {
+  optional bytes ring = 1;      // 72 B, 24 px RGB
+  optional double ts = 2;
+}
+
+message Pir {
+  optional bool high = 1;
+  optional uint32 count = 2;
+  optional double last_ts = 3;
+  optional double last_hold = 4;
+  optional double on_ts = 5;
+  optional double ts = 6;
+}
+
+message Sonar {
+  optional double cm = 1;
+  optional uint32 count = 2;
+  optional double ts = 3;
+}
+
+message Baro {
+  optional double pressure_hpa = 1;
+  optional double temp_c = 2;
+  optional double ts = 3;
+  optional string trend = 4;          // rising | falling | steady
+  repeated double series = 5;         // the sparkline's points, oldest first
+  optional uint32 count = 6;
+}
+
+message Weather {
+  optional double temp_c = 1;
+  optional double hum_pct = 2;
+  optional double ts = 3;
+  optional uint32 count = 4;
+}
+
+// The body's own power rails, read on the body. An interest of its own: the
+// console's power page and any consumer watching a brown-out.
+message Power {
+  map<string, double> rails = 1;
+  optional double ts = 2;
+}
+
+// What hurts, right now. Rows are stored as structured rows, not as one
+// "level|label" string: a consumer that has to split a string to find out
+// whether something is a fault is a consumer that will get it wrong.
+message Fault {
+  message Row {
+    string level = 1;      // fault | warn
+    string code = 2;       // e.g. "OLED LOOP", "DB DOWN"
+    string text = 3;       // the human sentence
+  }
+  repeated Row rows = 1;   // worst first
+  optional string condition = 2;  // well | niggle | hurts
+  optional double ts = 3;
 }
 
 // Something happened. detail is a string map, which keeps events to scalars:

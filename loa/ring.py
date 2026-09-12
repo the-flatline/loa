@@ -6,8 +6,8 @@ renders:
   ring_state home   : green breath, cyan drift
   ring_state busy   : amber breath — working
   ring_state alarm  : full red triple pulse — the yell
-  pending_event scan   : one comet lap — attention, on demand
-  pending_event glitch : one RGB-split stutter — corruption, on demand
+  ring event scan      : one comet lap — attention, on demand
+  ring event glitch    : one RGB-split stutter — corruption, on demand
 
 Priority: alarm > hurts > mute > busy > event > home. Events fire once and are
 cleared.
@@ -34,27 +34,72 @@ import time
 from .ws2812 import Ring
 from .render import DitheredFrame
 from . import animations as anim
-from . import cortex
-from . import fault
+from . import topic as topic_mod
 
 FPS = 60
 FRAME_PERIOD = 1.0 / FPS
 NIGGLE_PERIOD_S = 20.0
 
-_COND: dict = {"ts": 0.0, "val": "well"}
+#: The feed as this daemon sees it, and the way back up.
+_MIRROR = {"m": None}
+_OUT = {"sock": None}
+#: The frame sink is rate-limited: the ring redraws at 60fps, the topic ticks at
+#: 2Hz. Sending 60 frames a second would flood the cortex's ingest for data the
+#: tick will not carry anyway.
+SINK_MIN_S = 0.2
+_SINK = {"last": None, "at": 0.0}
+
+_CONDS = {"now": None, "until": None}
+
+#: A scan/glitch this daemon has already played. These were a `pending_event`
+#: flag in the cortex's state that this daemon CLEARED — a daemon writing another
+#: service's state. They are records now: the ring plays the newest ring event it
+#: has not played, and nothing has to be cleared because nothing is a flag.
+_ONESHOT = {"seen": None}
+
+
+def _state():
+    """The feed, flat, with the defaults a renderer needs to keep drawing."""
+    m = _MIRROR["m"]
+    st = dict(m.state()) if m is not None else {}
+    st.setdefault("ring_state", "home")
+    return st
+
+
+def _log(kind, detail=None):
+    sock = _OUT["sock"]
+    if sock is not None:
+        try:
+            sock.send("event", topic_mod.event(time.time(), kind, detail))
+        except Exception:                                   # noqa: BLE001
+            pass
+
+
+def _take_oneshot():
+    """A scan/glitch, taken once. None when there is nothing new to play."""
+    m = _MIRROR["m"]
+    if m is None:
+        return None
+    msg = m.message("event")
+    if msg is None or msg.kind != "ring":
+        return None
+    key = (round(msg.ts, 3), msg.detail.get("state"))
+    if key == _ONESHOT["seen"]:
+        return None
+    _ONESHOT["seen"] = key
+    return msg.detail.get("state") or None
 
 
 def _condition(ttl=1.0) -> str:
-    """The body's own report, polled at most once a second — this is called
-    every frame. A broken sweep must read as mute, never as well."""
-    now = time.time()
-    if now - _COND["ts"] < ttl:
-        return _COND["val"]
-    try:
-        val = fault.condition()
-    except Exception:                                       # noqa: BLE001
-        val = "mute"
-    _COND["ts"], _COND["val"] = now, val
+    """The body's own report, read at most once a second — this is called every
+    frame. A sweep that has never been heard reads as mute, never as well."""
+    now = time.monotonic()
+    if _CONDS["until"] is not None and now < _CONDS["until"]:
+        return _CONDS["now"]
+    m = _MIRROR["m"]
+    msg = None if m is None else m.message("fault")
+    val = "mute" if msg is None else (msg.condition or "well")
+    _CONDS["now"], _CONDS["until"] = val, now + ttl
     return val
 
 
@@ -112,8 +157,8 @@ def home(ring):
     dither = DitheredFrame(anim.LED_COUNT)
     next_tick = time.time() + NIGGLE_PERIOD_S
     for frame in _home_frames():
-        st = cortex.get_state()
-        if st["ring_state"] != "home" or st["pending_event"]:
+        st = _state()
+        if st["ring_state"] != "home":
             return
         # a niggle rides the breath rather than replacing it — one amber tick,
         # rare enough to be information instead of noise
@@ -132,9 +177,9 @@ def home(ring):
 def busy(ring):
     dither = DitheredFrame(anim.LED_COUNT)
     frames = anim.busy_frames(fps=FPS)
-    while cortex.get_state()["ring_state"] == "busy":
+    while _state()["ring_state"] == "busy":
         for frame in frames:
-            st = cortex.get_state()
+            st = _state()
             if st["ring_state"] != "busy":
                 return
             dither.render(ring, frame)
@@ -142,9 +187,9 @@ def busy(ring):
 
 
 def alarm(ring):
-    while cortex.get_state()["ring_state"] == "alarm":
+    while _state()["ring_state"] == "alarm":
         for frame in anim.alarm_frames():
-            if cortex.get_state()["ring_state"] != "alarm":
+            if _state()["ring_state"] != "alarm":
                 return
             ring.show(frame)
             time.sleep(0.4 if frame[0][0] > 0 else 0.3)
@@ -154,10 +199,10 @@ def alarm(ring):
 def one_scan(ring):
     dither = DitheredFrame(anim.LED_COUNT)
     # ripperdoc bench mode: snappier lap so the reaction reads instantly
-    st = cortex.get_state()
+    st = _state()
     lap, fade = (0.9, 0.3) if st.get("ripperdoc") else (1.6, 0.5)
     for frame in anim.scan_frames(lap_s=lap, fade_s=fade, fps=FPS):
-        st = cortex.get_state()
+        st = _state()
         if st["ring_state"] != "home":
             return
         dither.render(ring, frame)
@@ -167,19 +212,42 @@ def one_scan(ring):
 def one_glitch(ring):
     dither = DitheredFrame(anim.LED_COUNT)
     for frame in anim.glitch_frames(fps=FPS):
-        st = cortex.get_state()
+        st = _state()
         if st["ring_state"] != "home":
             return
         dither.render(ring, frame)
         time.sleep(FRAME_PERIOD)
 
 
+def _sink(raw):
+    """Send the ring's frame up to the cortex — on change, and never faster than
+    the topic can carry it."""
+    sock = _OUT["sock"]
+    if sock is None:
+        return
+    now = time.monotonic()
+    if raw == _SINK["last"] or now - _SINK["at"] < SINK_MIN_S:
+        return
+    try:
+        sock.send("ring", topic_mod.pb.Ring(ring=raw))
+    except Exception:                                       # noqa: BLE001
+        return
+    _SINK["last"], _SINK["at"] = raw, now
+
+
 def main(ring=None):
     ring = ring or Ring(num=anim.LED_COUNT)
-    cortex.log_event("boot", {"svc": "presence"})
+    _MIRROR["m"] = topic_mod.Mirror(topics=["ripperdoc", "fault", "event"])
+    _OUT["sock"] = topic_mod.Sender()
+    # The driver stays ignorant of the wire: it hands every frame to a sink and
+    # this is the sink. (The old path was a file in /dev/shm written behind the
+    # publisher's back.)
+    ring.frame_sink = _sink
+    time.sleep(0.3)          # let the subscriber see the publisher before judging it
+    _log("boot", {"svc": "presence"})
     try:
         while True:
-            st = cortex.get_state()
+            st = _state()
             cond = _condition()
             if st["ring_state"] == "alarm":
                 alarm(ring)
@@ -195,13 +263,12 @@ def main(ring=None):
             if st["ring_state"] == "busy":
                 busy(ring)
                 continue
-            if st["pending_event"] == "scan":
+            oneshot = _take_oneshot()
+            if oneshot == "scan":
                 one_scan(ring)
-                cortex.clear_event()
                 continue
-            if st["pending_event"] == "glitch":
+            if oneshot == "glitch":
                 one_glitch(ring)
-                cortex.clear_event()
                 continue
             home(ring)
     finally:

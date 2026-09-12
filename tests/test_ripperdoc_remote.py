@@ -96,7 +96,9 @@ def test_the_frag_page_draws_the_bodys_seal_from_the_feed(monkeypatch):
     drawn = []
     monkeypatch.setattr(face.amiga, "draw",
                         lambda frame, text, x, y, size=8, **kw: drawn.append(text))
-    st = {"ripperdoc_page": "frag",
+    # `page`, not `ripperdoc_page`: the state key was renamed to match the wire
+    # field on the ripperdoc topic, so there is one name for it end to end.
+    st = {"page": "frag",
           "frag": {"sealed": True, "entries": 3, "access_count": 6}}
     face.Ripperdoc().draw_state(face.Frame(), 0.0, st)
     assert "SEALED" in drawn and "GONE" not in drawn

@@ -1,138 +1,154 @@
-"""The topic: one schema, loud failures, raw bytes.
+"""topic — the socket layer, and the canonical JSON a record is stored as.
 
-The failures this pins down are the ones that cost tonight: a wrong answer that
-looked right. A schema version that disagrees must RAISE, not decode. The ring
-frame must arrive as raw bytes, not as hex, not as base64 — so nothing can
-guess at the encoding and be plausible about it.
+Replaced wholesale on 2026-09-12: the file it replaces tested the old wire (one
+stream, one envelope, state and frames as separate messages). Every assertion in
+it named a shape that no longer exists, and it hung the suite waiting on sockets
+that never opened — a test that cannot fail is worse than no test.
 """
+import time
+
+import pytest
 import zmq
 
 from loa import topic
 from loa.pb import loa_pb2 as pb
 
-STATE = {
-    "mood": "calm",
-    "ring_state": "home",
-    "oled_mode": "scope",
-    "oled_text": "LOA",
-    "oled_dim": False,
-    "ripperdoc": True,
-    "ripperdoc_page": "sensors",
-    "condition": "well",
-    "pir_high": False,
-    "pir_count": 3,
-    "pir_last_hold": 4.25,
-    "snr_cm": 41.5,
-    "temp_c": 23.8,
-    "pressure_hpa": 1026.26,
-}
+
+@pytest.fixture
+def ctx():
+    c = zmq.Context()
+    yield c
+    # destroy(), not term(): a failed assert leaves sockets open, and term()
+    # then blocks forever — which turns a red test into a hung suite. A test
+    # that hangs is worse than a test that fails, because it hides everything
+    # behind it.
+    c.destroy(linger=0)
 
 
-def _sub(endpoint, ctx):
-    """A subscriber that is actually subscribed before anyone publishes.
-
-    PUB/SUB drops to a slow joiner — silently — which would make these tests
-    flaky in exactly the way that teaches you nothing."""
-    s = topic.Subscriber(endpoints=[endpoint], ctx=ctx)
-    topic.wait_for_subscribers(None, 0.15)
-    return s
-
-
-def test_state_round_trips_through_the_schema_mapping():
-    msg = topic.state_to_message(STATE)
-    back = topic.message_to_state(msg)
-    for k, v in STATE.items():
-        assert back[k] == v, f"{k} changed: {v!r} -> {back[k]!r}"
-
-
-def test_unknown_keys_do_not_break_the_publish_path():
-    """Internal extras (counters, caches) must not stop the body reporting."""
-    msg = topic.state_to_message({**STATE, "some_internal_cache": {"a": 1}})
-    assert msg.mood == "calm"
+def test_the_topic_name_is_the_filter(ctx):
+    """A subscriber to `pir` is not sent `sonar`. This is the whole point of
+    naming messages by subject instead of by shape."""
+    pub = topic.Publisher(endpoint="inproc://filter", ctx=ctx)
+    sub = topic.Subscriber(endpoints=["inproc://filter"], topics=["pir"], ctx=ctx)
+    topic.wait_for_subscribers(0.3)
+    pub.send("sonar", pb.Sonar(cm=41.0))
+    pub.send("pir", pb.Pir(high=True))
+    got = sub.recv(1000)
+    assert got is not None
+    assert got[0] == "pir"
+    assert got[1].pir.high is True
+    sub.close()
+    pub.close()
 
 
-def test_canonical_json_keeps_snake_case():
-    """Default canonical JSON turns ring_state into ringState — camelCase in the
-    database, snake_case in the code. That is drift with a new haircut."""
-    js = topic.message_to_json(topic.state_to_message(STATE))
-    assert "ring_state" in js
-    assert "ringState" not in js
+def test_a_reading_survives_the_wire(ctx):
+    pub = topic.Publisher(endpoint="inproc://round", ctx=ctx)
+    sub = topic.Subscriber(endpoints=["inproc://round"], topics=["baro"], ctx=ctx)
+    topic.wait_for_subscribers(0.3)
+    pub.send("baro", pb.Baro(pressure_hpa=1013.2, temp_c=21.5))
+    name, env = sub.recv(1000)
+    assert name == "baro"
+    assert env.baro.pressure_hpa == pytest.approx(1013.2)
+    assert env.baro.temp_c == pytest.approx(21.5)
+    assert env.schema_version == topic.SCHEMA_VERSION
+    sub.close()
+    pub.close()
 
 
-def test_a_schema_mismatch_raises_instead_of_guessing():
-    env = topic._envelope(schema_version=topic.SCHEMA_VERSION + 1)
-    try:
+def test_only_the_fields_that_were_set_are_present(ctx):
+    """Presence, not zeroes: a reading that never mentioned a value must not
+    clobber the value another daemon owns with a default."""
+    msg = topic.partial("pir", {"pir_high": True})
+    assert msg.HasField("high")
+    assert not msg.HasField("count")
+    assert not msg.HasField("on_ts")
+
+
+def test_a_reading_under_a_name_nothing_reads_is_an_error():
+    """The silent-drop guard: a field published under a key the ingest does not
+    read looks exactly like a sensor that never fired."""
+    with pytest.raises(KeyError):
+        topic.partial("pir", {"pir_high": 1, "snr_cm": 41.0})
+
+
+def test_the_daemon_leg_round_trips_with_its_topic(ctx):
+    rx = topic.Receiver(endpoint="inproc://leg", ctx=ctx)
+    tx = topic.Sender(endpoint="inproc://leg", ctx=ctx)
+    topic.wait_for_subscribers(0.3)
+    tx.send("weather", topic.partial("weather", {"temp_c": 19.0, "hum_pct": 55.0}))
+    name, env = rx.recv(1000)
+    assert name == "weather"
+    assert topic.dict_to_state("weather", env.weather)["temp_c"] == 19.0
+    tx.close()
+    rx.close()
+
+
+def test_an_event_is_always_an_event():
+    """Whatever raised it. The kind carries the source."""
+    msg = topic.event(1726000000.0, "sense", {"svc": "motion", "gpio": 17})
+    assert msg.kind == "sense"
+    assert msg.detail["svc"] == "motion"
+    env = topic.envelope("event", msg)
+    assert env.WhichOneof("body") == "event"
+
+
+def test_an_event_detail_stays_scalar():
+    """A bytes field here would be silently base64'd by the canonical JSON
+    mapping and smuggle an encoding into the database."""
+    msg = topic.event(1.0, "x", {"n": 5, "ok": True})
+    assert msg.detail["n"] == "5" and msg.detail["ok"] == "True"
+
+
+# -- the stored form ------------------------------------------------------- #
+
+def test_canonical_json_uses_the_schema_names():
+    msg = pb.Sonar(cm=41.0, count=3)
+    out = topic.message_to_json(msg)
+    assert '"cm"' in out and '"count"' in out
+
+
+def test_canonical_json_carries_a_reading_whole():
+    """A stored record must not lose a field to a hand-written mapping: the
+    schema generates both the wire form and the stored form, so they cannot
+    disagree about what a field is called."""
+    msg = topic.partial("pir", {"pir_high": True, "pir_last_hold": 4.0})
+    out = topic.message_to_json(msg)
+    assert "high" in out and "last_hold" in out
+
+
+def test_check_refuses_a_stale_schema():
+    env = pb.Envelope(schema_version=topic.SCHEMA_VERSION - 1)
+    env.ring.ring = b"x"
+    with pytest.raises(topic.SchemaMismatch):
         topic.check(env)
-    except topic.SchemaMismatch as e:
-        assert "refusing to guess" in str(e)
-    else:
-        raise AssertionError("a mismatched schema decoded instead of failing")
 
 
-def test_bytes_cross_the_wire_raw():
-    """No hex, no base64. If this ever fails, look for an encoding somebody
-    added 'to make it json-friendly'."""
-    ctx = zmq.Context()
-    ep = "inproc://t-twin"
-    pub = topic.Publisher(ep, ctx=ctx)
-    sub = _sub(ep, ctx)
-
-    face = bytes(range(256)) * 4            # 1024, exactly a panel
-    ring = bytes([0, 0, 216] * 24)          # 72, 24 px red
-    pub.publish_frames(face, ring)
-
-    env = sub.recv(2000)
-    assert env is not None, "no frames arrived"
-    assert env.frames.face == face, "the face did not arrive byte-for-byte"
-    assert env.frames.ring == ring, "the ring did not arrive byte-for-byte"
-    assert len(env.frames.ring) == 72
-    pub.close(); sub.close()
+def test_check_topic_refuses_a_payload_that_is_not_the_topic(ctx):
+    env = topic.envelope("ring", pb.Ring(ring=b"x" * 72))
+    with pytest.raises(topic.TopicMismatch):
+        topic.check_topic("ripperdoc", env)
 
 
-def test_state_publishes_and_is_typed_on_arrival():
-    ctx = zmq.Context()
-    ep = "inproc://t-state"
-    pub = topic.Publisher(ep, ctx=ctx)
-    sub = _sub(ep, ctx)
-
-    pub.publish_state(STATE)
-    env = sub.recv(2000)
-    assert env is not None
-    assert env.WhichOneof("body") == "state"
-    assert env.state.mood == "calm" and env.state.pir_count == 3
-    pub.close(); sub.close()
+def test_an_unknown_topic_is_refused_at_build():
+    with pytest.raises(ValueError):
+        topic.envelope("frames")
 
 
-def test_a_daemon_feeds_the_cortex_and_a_stale_one_cannot_silence_it():
-    """The inbound leg is PUSH/PULL: many daemons, one collector, and a reading
-    that vanishes because a consumer was slow would be a lie about the body."""
-    ctx = zmq.Context()
-    ep = "inproc://t-in"
-    rx = topic.Receiver(ep, ctx=ctx)
-    tx = topic.Sender(ep, ctx=ctx)
-
-    tx.send_state({"pir_high": True, "pir_count": 1})
-    env = rx.recv(2000)
-    assert env is not None and env.state.pir_high is True
-
-    # a daemon left running from an older deploy: counted and dropped, never
-    # raised into the cortex's loop — it must not stop the body reporting
-    stale = topic._envelope(schema_version=topic.SCHEMA_VERSION + 1)
-    stale.state.mood = "wrong"
-    tx.send(stale)
-    assert rx.recv(1500) is None
-    assert rx.rejected == 1, "a stale daemon must be visible, not silent"
-
-    tx.close(); rx.close()
-
-
-def test_events_carry_scalars_and_land_as_json():
-    """detail is a string map, so no bytes field can be silently base64'd into
-    the database where nobody looks for an encoding."""
-    env = topic._envelope()
-    env.event.ts = 1789200000.0
-    env.event.kind = "boot"
-    env.event.detail["svc"] = "motion"
-    js = topic.message_to_json(env.event)
-    assert '"svc": "motion"' in js or '"svc":"motion"' in js
-    assert "base64" not in js.lower()
+def test_the_mirror_keeps_the_newest_message_per_topic(ctx):
+    pub = topic.Publisher(endpoint="inproc://mirror", ctx=ctx)
+    m = topic.Mirror(endpoints=["inproc://mirror"], topics=["ripperdoc", "fault"],
+                     ctx=ctx)
+    topic.wait_for_subscribers(0.3)
+    pub.send("ripperdoc", pb.Ripperdoc(page="power", mood="pleased"))
+    pub.send("fault", pb.Fault(condition="hurts"))
+    deadline = time.time() + 3
+    while time.time() < deadline and m.message("fault") is None:
+        time.sleep(0.05)
+    assert m.message("ripperdoc").page == "power"
+    assert m.message("fault").condition == "hurts"
+    assert m.state()["mood"] == "pleased"
+    assert m.state()["condition"] == "hurts"
+    assert m.age("ripperdoc") is not None
+    assert m.age("baro") is None          # never arrived, and says so
+    m.close()
+    pub.close()

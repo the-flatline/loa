@@ -1,8 +1,12 @@
 """oled — the face daemon (loa-oled). Owns SPI0.
 
-Polls the cortex state row (oled_mode / oled_text / oled_dim) and renders
-the mode into the SH1106 framebuffer. Same decoupled pattern as the ring:
-the API never touches hardware, the daemon never thinks about intent.
+SUBSCRIBES to the topics and renders the mode into the SH1106 framebuffer.
+It does NOT read the cortex: a daemon reaching into another service's state is
+the cross-service read this design removes — and the failure it caused is on
+record, a face daemon happily rendering a mood the body had already dropped.
+The mode arrives on the ripperdoc topic, and the frames go back up on it.
+Same decoupled pattern as the ring: the API never touches hardware, the daemon
+never thinks about intent.
 
 Modes: scope (the flatline) | ecg | ripple | noise | text (marquee) | off
 
@@ -15,9 +19,22 @@ full-screen redraw loop; on an uncooled board it is a heater with a UI.
 import random
 import time
 
-from . import cortex
-from . import fault
 from . import face
+from . import topic as topic_mod
+
+#: The feed, as this daemon sees it. The renderers need the mode and the mood;
+#: they read them here, never out of the cortex.
+_MIRROR = {"m": None}
+#: The way back up: the frames this daemon drives, and its own records.
+_OUT = {"sock": None}
+
+#: The orientation the panel has been told to use. The panel cannot be read
+#: back, so this is the only record of it.
+_FLIP = {"on": None}
+
+#: How long a silent feed goes unreported. The tick is 2Hz, so a couple of
+#: seconds of nothing is a fault, not a pause.
+FEED_STALE_S = 5.0
 
 FPS = 30
 # A ripperdoc page is text that changes a few times a second at most. Drawing
@@ -36,11 +53,19 @@ def _period_for(mode: str) -> float:
 _BODY: dict = {"ts": 0.0, "val": "well"}
 
 
+def _fault_rows():
+    """The body's fault rows, off the fault topic."""
+    m = _MIRROR["m"]
+    if m is None:
+        return []
+    msg = m.message("fault")
+    return [] if msg is None else list(msg.rows)
+
+
 def _ring_is_dark() -> bool:
     """True when nothing is driving the ring bus — the sweep names this
     RING DARK."""
-    rep = fault.status()
-    return any(r.get("code") == "RING DARK" for r in (rep.get("rows") or []))
+    return any(r.code == "RING DARK" for r in _fault_rows())
 
 
 def _body_condition(ttl=2.0) -> str:
@@ -49,10 +74,15 @@ def _body_condition(ttl=2.0) -> str:
     now = time.time()
     if now - _BODY["ts"] < ttl:
         return _BODY["val"]
-    try:
-        val = fault.condition()
-    except Exception:                                       # noqa: BLE001
+    m = _MIRROR["m"]
+    msg = None if m is None else m.message("fault")
+    if msg is None:
+        # No fault message has EVER arrived — the sweep is not being heard, and
+        # that is mute, not well. Reading silence as health is what let a body
+        # sit hurting with a calm face.
         val = "mute"
+    else:
+        val = msg.condition or "well"
     _BODY["ts"], _BODY["val"] = now, val
     return val
 
@@ -66,9 +96,6 @@ MODE_CLASSES = {
     "ripperdoc": face.Ripperdoc,
 }
 
-# the face's topic on the loa frame bus — RAM-backed, mirror of the panel
-OLED_TOPIC = "/dev/shm/loa-oled.bin"
-
 _LAST_FACE: dict = {"buf": None}
 
 BRIGHT = 0xCF
@@ -78,6 +105,36 @@ DIM = 0x18
 # from holding one pattern long enough to ghost (Divv's suggestion).
 WASH_EVERY_S = 300.0
 WASH_SECS = 5.0
+
+
+def _state():
+    """The feed, as a flat dict the renderers already understand."""
+    m = _MIRROR["m"]
+    st = dict(m.state()) if m is not None else {}
+    st.setdefault("oled_mode", "scope")
+    st.setdefault("oled_text", None)
+    st.setdefault("oled_dim", False)
+    st.setdefault("page", "sensors")
+    st.setdefault("mood", "calm")
+    st.setdefault("ring_state", "home")
+    st.setdefault("oled_flip", True)
+    # A silent feed is REPORTED, never quietly rendered as a healthy body: if
+    # nothing has arrived on the ripperdoc topic, the face says so.
+    age = None if m is None else m.age("ripperdoc")
+    if age is None or age > FEED_STALE_S:
+        st["oled_mode"] = "ripperdoc"
+        st["page"] = "fault"
+    return st
+
+
+def _log(kind, detail=None):
+    """A record. Over the topic — the cortex keeps the store, not this daemon."""
+    sock = _OUT["sock"]
+    if sock is not None:
+        try:
+            sock.send("event", topic_mod.event(time.time(), kind, detail))
+        except Exception:                                   # noqa: BLE001
+            pass
 
 
 def render_loop(display=None, max_frames=None):
@@ -92,7 +149,7 @@ def render_loop(display=None, max_frames=None):
     try:
         display.clear()
         while max_frames is None or frames < max_frames:
-            st = cortex.get_state()
+            st = _state()
             # The face is the deliberate tell: when the body hurts it names
             # where. It takes over an IDLE face — at the bench you are driving
             # the pages and it must not fight you for them — but if the RING
@@ -100,8 +157,14 @@ def render_loop(display=None, max_frames=None):
             # mouth has to speak or the body has no channel left at all.
             if _body_condition() in ("hurts", "mute"):
                 if st["oled_mode"] != "ripperdoc" or _ring_is_dark():
-                    st = {**st, "oled_mode": "ripperdoc",
-                          "ripperdoc_page": "fault"}
+                    st = {**st, "oled_mode": "ripperdoc", "page": "fault"}
+            flip = bool(st.get("oled_flip", True))
+            if flip != _FLIP["on"]:
+                # The face's orientation, applied on the PANEL: two commands,
+                # nothing per frame. Persisted, so an upside-down mount survives
+                # a reboot.
+                _FLIP["on"] = flip
+                display.set_flip(flip)
             key = (st["oled_mode"], st["oled_text"], st["oled_dim"])
             if key != last_key:
                 last_key = key
@@ -114,7 +177,7 @@ def render_loop(display=None, max_frames=None):
             # pixel wash: exercise every pixel so no pattern ghosts. Skips
             # "off" — a blank face isn't forming retention.
             if st["oled_mode"] != "off" and time.time() - last_wash >= WASH_EVERY_S:
-                cortex.log_event("wash", {"secs": WASH_SECS})
+                _log("wash", {"secs": WASH_SECS})
                 display.set_contrast(BRIGHT)      # full swing clears best
                 _wash(display, frame, WASH_SECS)
                 display.set_contrast(DIM if st["oled_dim"] else BRIGHT)
@@ -143,21 +206,26 @@ def render_loop(display=None, max_frames=None):
 
 
 def _publish_face(frame) -> None:
-    """Publish the framebuffer to /dev/shm/loa-oled.bin (1KB) — on CHANGE only.
+    """Send the framebuffer up to the cortex, on CHANGE only.
 
     The daemon redraws 4-30x a second, but a status page is usually identical
-    frame to frame. Rewriting identical bytes is work with no reader benefit,
-    and the file's mtime is what tells a consumer the frame moved. Publish-on-
-    change is also exactly the semantics a subscriber needs, so this is the
-    first half of the pub/sub bridge done in a way that cannot break anything.
+    frame to frame. Sending identical bytes is work the cortex would then have
+    to publish at the tick anyway, so the change check is here, closest to the
+    pixels.
+
+    The frame goes INSIDE a Ripperdoc event — one protobuf message, the raw
+    1024 bytes as a field, nothing encoded and nothing beside it.
     """
+    sock = _OUT["sock"]
+    if sock is None:
+        return
     buf = bytes(frame.buf)
     if _LAST_FACE["buf"] == buf:
         return
     try:
-        with open(OLED_TOPIC, "wb") as f:
-            f.write(buf)
-    except OSError:
+        msg = topic_mod.pb.Ripperdoc(face=buf)
+        sock.send("ripperdoc", msg)
+    except Exception:                                       # noqa: BLE001
         return
     _LAST_FACE["buf"] = buf
 
@@ -204,7 +272,13 @@ def _make_renderer(mode, state):
 
 
 def main():
-    cortex.log_event("boot", {"svc": "oled"})
+    _MIRROR["m"] = topic_mod.Mirror(topics=["ripperdoc", "fault", "ring"])
+    _OUT["sock"] = topic_mod.Sender()
+    # A subscriber will not see a publisher that has only just bound, so the
+    # face shows ALL QUIET until the first message lands. That is the honest
+    # face for a body whose feed has not started: it says the silence.
+    time.sleep(0.3)
+    _log("boot", {"svc": "oled"})
     render_loop()
 
 

@@ -22,15 +22,17 @@ fi
 echo "== installing services =="
 sudo cp deploy/loa-ring.service deploy/loa-oled.service deploy/loa-cortex.service \
         deploy/loa-motion.service deploy/loa-sonar.service deploy/loa-weather.service \
-        deploy/loa-record.service \
         deploy/loa-fault.service deploy/loa-fault.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now loa-ring loa-oled loa-cortex \
-                            loa-motion loa-sonar loa-weather loa-record \
+                            loa-motion loa-sonar loa-weather \
                             loa-fault.timer
 
 echo "== retiring units that no longer exist =="
-for dead in loa-presence loa-sense loa-api loa-faults loa-ctl; do
+# loa-record: the CORTEX writes records now (it is the only writer of the
+# store). loa-relay: it polled and wrote twin.json — the bridge this design
+# forbids. loa-sense: split into loa-motion / loa-sonar / loa-weather.
+for dead in loa-presence loa-sense loa-api loa-faults loa-ctl loa-record loa-relay; do
   sudo systemctl disable --now "$dead" 2>/dev/null || true
   sudo rm -f "/etc/systemd/system/$dead.service"
 done

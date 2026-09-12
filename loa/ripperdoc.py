@@ -329,6 +329,7 @@ class RipperdocApp(App):
         ("6", "page_power", "power page"),
         ("7", "page_fault", "fault page"),
         ("m", "mood", "next mood"),
+        ("f", "flip", "flip face 180"),
         ("q", "quit", "quit"),
     ]
 
@@ -439,6 +440,20 @@ class RipperdocApp(App):
     def action_page_fault(self):
         try:
             _post("/ripperdoc", {"page": "fault"})
+        except Exception:
+            pass
+
+    def action_flip(self):
+        """Turn the face 180 degrees — on the panel.
+
+        A setting, not a mode: it is remembered in the store and applied at
+        startup, so a face mounted upside down stays upside down across a
+        reboot. Two commands on the SH1106, so the picture costs the same either
+        way and the render loop does not have to rotate a pixel.
+        """
+        try:
+            st = body_state()
+            _post("/display", {"flip": not bool(st.get("oled_flip", True))})
         except Exception:
             pass
 

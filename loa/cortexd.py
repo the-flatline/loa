@@ -23,6 +23,8 @@ journal and leaves a marker. The theft consumes the prize.
 """
 
 import os
+import sys
+import threading
 import time
 
 from fastapi import FastAPI, Header, HTTPException
@@ -34,6 +36,8 @@ from . import fault
 from . import expressions as expr
 from . import fragment as fragment_mod
 from . import moods
+from . import store as store_mod
+from . import topic as topic_mod
 from . import face
 
 DEFAULT_PORT = 8765
@@ -63,9 +67,14 @@ class RingRequest(BaseModel):
 
 
 class DisplayRequest(BaseModel):
-    mode: str = Field(..., description="scope|ecg|ripple|noise|text|showoff|ripperdoc|off")
+    #: Every field optional: a flip-only call must not have to name a mode, and
+    #: a mode-only call must not have to restate the orientation.
+    mode: str | None = Field(None, description="scope|ecg|ripple|noise|text|showoff|ripperdoc|off")
     text: str | None = None
     dim: bool | None = None
+    #: The face turned 180 degrees, on the panel. Persisted: a face mounted
+    #: upside down must still be upside down after a reboot.
+    flip: bool | None = None
 
 
 class RipperdocRequest(BaseModel):
@@ -162,22 +171,20 @@ def _full_state(history_n=0):
         "mood": {"feeling": st["mood"], "set_at": st["updated_at"]},
         "expression": ({"expression": st["expression"]}
                        if st["expression"] else None),
-        "ring": {
-            "state": st["ring_state"],
-            "pending_event": st["pending_event"],
-        },
+        "ring": {"state": st["ring_state"]},
         "oled": {
             "mode": st["oled_mode"],
             "text": st["oled_text"],
             "dim": st["oled_dim"],
+            "flip": st["oled_flip"],
         },
         "sensors": _sensors_state(),
         "ripperdoc": st["ripperdoc"],
-        "ripperdoc_page": st["ripperdoc_page"],
+        "page": st["page"],
         "sense": {
             "pir_high": st["pir_high"],
-            "count": st["sense_count"],
-            "last_ts": st["sense_ts"],
+            "count": st["pir_count"],
+            "last_ts": st["pir_last_ts"],
             "last_hold": st["pir_last_hold"],
             "snr_cm": st["snr_cm"],
             "snr_ts": st["snr_ts"],
@@ -258,27 +265,32 @@ def ring(req: RingRequest):
     moods.apply_ring(cortex, req.state)
     cortex.log_event("ring", {"state": req.state})
     st = cortex.get_state()
-    return {"ok": True, "ring": req.state,
-            "state": st["ring_state"], "pending_event": st["pending_event"]}
+    return {"ok": True, "ring": req.state, "state": st["ring_state"]}
 
 
 @app.post("/display")
 def display(req: DisplayRequest):
-    if req.mode not in ("scope", "ecg", "ripple", "noise", "text", "showoff",
-                        "ripperdoc", "off"):
-        raise HTTPException(
-            400, "mode must be scope|ecg|ripple|noise|text|showoff|ripperdoc|off")
-    cortex.set_state({
-        "oled_mode": req.mode,
-        "oled_text": req.text if req.mode == "text" else None,
-        "oled_dim": bool(req.dim),
-    })
-    cortex.log_event("display", {"mode": req.mode, "text": req.text,
-                                 "dim": req.dim})
+    fields = {}
+    if req.mode is not None:
+        if req.mode not in ("scope", "ecg", "ripple", "noise", "text", "showoff",
+                            "ripperdoc", "off"):
+            raise HTTPException(
+                400, "mode must be scope|ecg|ripple|noise|text|showoff|ripperdoc|off")
+        fields["oled_mode"] = req.mode
+        fields["oled_text"] = req.text if req.mode == "text" else None
+    if req.dim is not None:
+        fields["oled_dim"] = bool(req.dim)
+    if req.flip is not None:
+        fields["oled_flip"] = bool(req.flip)
+    if fields:
+        cortex.set_state(fields)
+        cortex.log_event("display", {"mode": req.mode, "text": req.text,
+                                     "dim": req.dim, "flip": req.flip})
     st = cortex.get_state()
     return {"ok": True, "oled": {"mode": st["oled_mode"],
                                  "text": st["oled_text"],
-                                 "dim": st["oled_dim"]}}
+                                 "dim": st["oled_dim"],
+                                 "flip": st["oled_flip"]}}
 
 
 @app.post("/ripperdoc")
@@ -287,7 +299,7 @@ def ripperdoc(req: RipperdocRequest):
     if req.page is not None:
         if req.page not in face.Ripperdoc.PAGES:
             raise HTTPException(400, f"page must be {'|'.join(face.Ripperdoc.PAGES)}")
-        fields["ripperdoc_page"] = req.page
+        fields["page"] = req.page
     if req.on is not None:
         fields["ripperdoc"] = 1 if req.on else 0
         fields["oled_mode"] = "ripperdoc" if req.on else "scope"
@@ -295,11 +307,11 @@ def ripperdoc(req: RipperdocRequest):
         cortex.set_state(fields)
         if "ripperdoc" in fields:
             cortex.log_event("ripperdoc", {"on": req.on,
-                                           "page": fields.get("ripperdoc_page",
-                                                              cortex.get_state()["ripperdoc_page"])})
+                                           "page": fields.get("page",
+                                                              cortex.get_state()["page"])})
     st = cortex.get_state()
     return {"ok": True, "ripperdoc": st["ripperdoc"],
-            "page": st["ripperdoc_page"], "oled": st["oled_mode"]}
+            "page": st["page"], "oled": st["oled_mode"]}
 
 
 @app.get("/twin")
@@ -360,143 +372,275 @@ def fragment_read(x_fragment_token: str | None = Header(default=None)):
 # ---------------------------------------------------------------------------
 # entry point
 
-# -- the topic: loa-cortex is the ONE publisher ------------------------------ #
-# Keyed by endpoint: a module-level single slot meant the first endpoint bind
-# won forever, so a second start_publishing() silently published into a socket
-# nobody was listening on. Found by the tests, not by the body.
+# --------------------------------------------------------------------------- #
+# the topics: loa-cortex is the ONE publisher
+# --------------------------------------------------------------------------- #
+# Keyed by endpoint: a module-level single slot meant the first endpoint bind won
+# forever, so a second start_publishing() silently published into a socket nobody
+# was listening on. Found by the tests, not by the body.
 _PUB = {}
 
+#: The panel and the ring, AS DRIVEN, sent up by loa-oled and loa-ring. The body
+#: renders them and the cortex publishes them, so neither daemon has to read the
+#: state to find out what it is drawing — and so a consumer never has to reach
+#: back over HTTP for the one thing that is genuinely the body's output.
+_FACE = b""
+_RING = b""
 
-def _attach_body_readouts(msg):
-    """Add the readings that exist only on the body: PMIC, fault sweep, seal.
+#: The one table that knows how a state key is spelled on the wire. It lives in
+#: topic.py because BOTH directions use it — the ingest to merge, a daemon to
+#: publish. Two copies would be two things to drift.
+TOPIC_STATE_MAP = topic_mod.TOPIC_STATE_MAP
 
-    Attached at PUBLISH time rather than stored, because they are hardware and
-    they change on their own schedule — and their change is exactly what makes
-    the publish-on-change comparison notice a rail moving.
+#: The body's own readouts, read on the body. Attached at PUBLISH time: they are
+#: hardware, they change on their own schedule, and the face's PWR page is
+#: rendered from exactly these.
+def _power_body():
+    try:
+        return {str(k): float(v) for k, v in (face.power_status() or {}).items()
+                if isinstance(v, (int, float))}
+    except Exception:                                           # noqa: BLE001
+        return {}
 
-    Each block is independently guarded: a missing sensor or an unreadable vault
-    must not stop the state going out. Say less, never go silent.
+
+def _fault_rows(st):
+    """What hurts, worst first, including what only the cortex can know.
+
+    `DB DOWN` is raised here rather than by the fault sweep: the body cannot
+    remember a setting, and the sweep has no way to see that. Leaving it out
+    would make a setting that is silently not persisted invisible on the glass.
     """
-    try:
-        for k, v in (face.power_status() or {}).items():
-            if isinstance(v, (int, float)):
-                msg.power[str(k)] = float(v)
-    except Exception:                                           # noqa: BLE001
-        pass
-    try:
-        for row in (fault.status() or {}).get("rows") or []:
-            msg.faults.append("%s|%s" % (row.get("level", ""),
-                                         row.get("face") or row.get("code") or ""))
-    except Exception:                                           # noqa: BLE001
-        pass
-    try:
-        msg.condition = fault.condition()
-    except Exception:                                           # noqa: BLE001
-        pass
-    try:
-        for k, v in (face.seal_state() or {}).items():
-            msg.frag[str(k)] = str(v)
-    except Exception:                                           # noqa: BLE001
-        pass
-    try:
-        msg.baro_trend = cortex.baro_trend()
-        msg.baro_series.extend(_baro_series())
-    except Exception:                                           # noqa: BLE001
-        pass
-    return msg
+    rows = list(st.get("faults") or [])
+    if cortex.db_down():
+        rows.insert(0, {"level": "fault", "code": "DB DOWN",
+                        "text": "cannot reach the store on aleph — settings "
+                                "are held in RAM and will not survive a reboot"})
+    return rows
 
 
-def start_publishing(endpoint=None):
-    """Publish state changes and events to the topic. Called once at startup.
+def _condition_from(rows):
+    if any(r.get("level") == "fault" for r in rows if isinstance(r, dict)):
+        return "hurts"
+    if any(r.get("level") == "warn" for r in rows if isinstance(r, dict)):
+        return "niggle"
+    return "well"
 
-    Registered on the state module, which knows nothing about ZMQ: it reports
-    what changed, this decides what to do about it.
 
-    Publish on CHANGE — the schema decides what "changed" means, by comparing
-    the serialised message. A state that has not moved is not news, and a feed
-    of non-news is a feed nobody reads.
+def _build(topic, st):
+    """The message for one topic, from the live state. Assembled WHOLE every
+    time: a consumer never has to merge, so it never needs merge logic, and the
+    one thing it can get wrong is holding a stale message — which the tick fixes."""
+    pb = topic_mod.pb
+    if topic == "ripperdoc":
+        m = pb.Ripperdoc(face=_FACE, page=st["page"], mood=st["mood"],
+                         snr_on=bool(st["snr_on"]), ring_state=st["ring_state"],
+                         oled_mode=st["oled_mode"],
+                         oled_dim=bool(st["oled_dim"]),
+                         ripperdoc=bool(st["ripperdoc"]),
+                         condition=st["condition"], ts=time.time())
+        if st["oled_text"] is not None:
+            m.oled_text = st["oled_text"]
+        return m
+    if topic == "ring":
+        return pb.Ring(ring=_RING, ts=time.time())
+    if topic == "pir":
+        m = pb.Pir(high=bool(st["pir_high"]), count=int(st["pir_count"]),
+                   last_hold=float(st["pir_last_hold"]), ts=time.time())
+        if st["pir_last_ts"] is not None:
+            m.last_ts = st["pir_last_ts"]
+        if st["pir_on_ts"] is not None:
+            m.on_ts = st["pir_on_ts"]
+        return m
+    if topic == "sonar":
+        m = pb.Sonar(count=int(st["snr_count"]), ts=time.time())
+        if st["snr_cm"] is not None:
+            m.cm = st["snr_cm"]
+        return m
+    if topic == "baro":
+        trend, series = cortex.baro_trend()
+        m = pb.Baro(count=int(st["baro_count"]), trend=trend, ts=time.time())
+        if st["pressure_hpa"] is not None:
+            m.pressure_hpa = st["pressure_hpa"]
+        if st["baro_temp_c"] is not None:
+            m.temp_c = st["baro_temp_c"]
+        m.series.extend(series)
+        return m
+    if topic == "weather":
+        m = pb.Weather(count=int(st["temp_count"]), ts=time.time())
+        if st["temp_c"] is not None:
+            m.temp_c = st["temp_c"]
+        if st["hum_pct"] is not None:
+            m.hum_pct = st["hum_pct"]
+        return m
+    if topic == "power":
+        m = pb.Power(ts=time.time(), rails=_power_body())
+        # The vault's seal, as the body sees it. The console's FRAG page draws
+        # this, so it must ARRIVE rather than be fetched — a page that reaches
+        # back for one field is a poller wearing a subscriber's coat.
+        for k, v in (st.get("frag") or {}).items():
+            m.frag[str(k)] = str(v)
+        return m
+    if topic == "fault":
+        rows = _fault_rows(st)
+        m = pb.Fault(condition=_condition_from(rows), ts=time.time())
+        for r in rows:
+            m.rows.add(level=str(r.get("level", "")),
+                       code=str(r.get("code", "")),
+                       text=str(r.get("text", "")))
+        return m
+    raise ValueError("no builder for topic %r" % topic)
+
+
+#: Every topic the tick publishes. `event` is NOT here: an event is not a state,
+#: and republishing yesterday's event every 500ms would be a record pretending to
+#: be news. Events go out on occurrence, once.
+TICK_TOPICS = ("ripperdoc", "ring", "pir", "sonar", "baro", "weather", "power",
+               "fault")
+
+
+def _publish_all(pub, st=None):
+    st = st if st is not None else cortex.get_state()
+    for topic in TICK_TOPICS:
+        try:
+            pub.send(topic, _build(topic, st))
+        except Exception as e:                                  # noqa: BLE001
+            print("loa-cortex: publish %s failed: %s: %s"
+                  % (topic, type(e).__name__, e), file=sys.stderr, flush=True)
+
+
+def start_publishing(endpoint=None, tick=None):
+    """Publish every topic on a fixed tick, and again when something changes.
+
+    TWO triggers, one path. The tick is not decoration: without it a consumer
+    that subscribes after the last change is blind, and somebody will "fix" that
+    with a /subscribe endpoint returning initial state — which is the endpoint a
+    future session will start hammering. The tick removes the need for it.
 
     Never fatal: if the socket cannot be made, the body keeps running without a
     feed. A missing publisher must not mean a mute body.
     """
-    from . import topic as topic_mod
-
     slot = _PUB.setdefault(endpoint or topic_mod.DEFAULT_ENDPOINT,
-                           {"sock": None, "last": None})
-
-    def hook(kind, payload):
-        if slot["sock"] is None:
-            try:
-                slot["sock"] = topic_mod.Publisher(
-                    **({"endpoint": endpoint} if endpoint else {}))
-            except Exception:                                   # noqa: BLE001
-                return
-        pub = slot["sock"]
+                           {"sock": None, "stop": None})
+    if slot["sock"] is None:
         try:
-            if kind == "state":
-                msg = _attach_body_readouts(topic_mod.state_to_message(payload))
-                raw = msg.SerializeToString()
-                if raw == slot["last"]:
-                    return
-                slot["last"] = raw
-                env = topic_mod._envelope()
-                env.state.CopyFrom(msg)
-                pub.send(env)
-            else:
-                pub.publish_event(payload.get("ts") or 0.0,
-                                  payload.get("kind") or "",
-                                  payload.get("detail") or {})
+            slot["sock"] = topic_mod.Publisher(
+                **({"endpoint": endpoint} if endpoint else {}))
+        except Exception as e:                                  # noqa: BLE001
+            print("loa-cortex: no publisher: %s: %s" % (type(e).__name__, e),
+                  file=sys.stderr, flush=True)
+            return None
+
+    # Publish on CHANGE as well as on the tick, so a command lands on the feed
+    # immediately instead of up to TICK_S later.
+    def hook(kind, payload):
+        if kind == "state":
+            return
+        try:
+            slot["sock"].publish_event(payload.get("ts") or 0.0,
+                                       payload.get("kind") or "",
+                                       payload.get("detail") or {})
         except Exception:                                       # noqa: BLE001
             pass
 
-    return cortex.on_publish(hook)
+    off = cortex.on_publish(hook)
+    slot["off"] = off
+
+    if slot["stop"] is None:
+        stop = threading.Event()
+        slot["stop"] = stop
+        period = topic_mod.TICK_S if tick is None else tick
+
+        def loop():
+            while not stop.is_set():
+                t0 = time.time()
+                _publish_all(slot["sock"])
+                stop.wait(max(0.0, period - (time.time() - t0)))
+        threading.Thread(target=loop, daemon=True).start()
+    return slot["sock"]
 
 
 def start_ingesting(endpoint=None):
-    """Take readings off the topic and assemble the body's state.
+    """Take readings off the inbound socket and assemble the body's state.
 
     This is the other half of the cortex being the one publisher. The daemons
-    PUBLISH their readings; this merges them; the merged state goes back out on
-    the topic. Without it the feed carried only what the HTTP door changed and
+    PUSH their readings; this merges them; the merged state goes back out on the
+    topics. Without it the feed carried only what the HTTP door changed and
     nothing at all from the senses.
 
     Merging is by PRESENCE: a reading carries only the fields its daemon
     measured, so a motion event cannot clobber the mood with a zero value.
     """
-    from . import topic as topic_mod
-    import threading
-
     rx = topic_mod.Receiver(**({"endpoint": endpoint} if endpoint else {}))
     stop = threading.Event()
 
     def loop():
+        global _FACE, _RING
         while not stop.is_set():
             try:
-                for env in rx.drain(250):
-                    which = env.WhichOneof("body")
-                    if which == "state":
-                        fields = topic_mod.state_fields_present(env.state)
-                        if fields:
-                            cortex.set_state(fields)   # republished by the hook
-                    elif which == "event":
-                        whole = topic_mod.event_to_dict(env.event)
+                for topic, env in rx.drain(250):
+                    if topic == "event":
+                        whole = topic_mod.message_to_dict(env.event)
                         cortex.log_event(env.event.kind,
                                          whole.get("detail") or {},
                                          ts=env.event.ts)
+                        continue
+                    if topic == "ripperdoc":
+                        if env.ripperdoc.HasField("face"):
+                            _FACE = bytes(env.ripperdoc.face)
+                    elif topic == "ring":
+                        if env.ring.HasField("ring"):
+                            _RING = bytes(env.ring.ring)
+                    elif topic == "baro":
+                        b = env.baro
+                        fields = {}
+                        for f, key in TOPIC_STATE_MAP["baro"].items():
+                            if b.HasField(f):
+                                fields[key] = getattr(b, f)
+                        if fields:
+                            cortex.set_state(fields)
+                        if b.HasField("pressure_hpa"):
+                            cortex.baro_sample(b.pressure_hpa,
+                                               b.temp_c if b.HasField("temp_c")
+                                               else None,
+                                               ts=b.ts or None)
+                        continue
+                    elif topic == "fault":
+                        rows = [{"level": r.level, "code": r.code,
+                                 "text": r.text} for r in env.fault.rows]
+                        cortex.set_state({"faults": rows})
+                        if env.fault.HasField("condition"):
+                            cortex.set_state({"condition":
+                                              env.fault.condition})
+                        continue
+                    mapping = TOPIC_STATE_MAP.get(topic)
+                    if mapping is None:
+                        print("loa-cortex: ingest: unknown topic %r" % topic,
+                              file=sys.stderr, flush=True)
+                        continue
+                    msg = getattr(env, topic)
+                    fields = {}
+                    for f, key in mapping.items():
+                        if msg.HasField(f):
+                            fields[key] = getattr(msg, f)
+                    if fields:
+                        cortex.set_state(fields)
             except Exception as e:                              # noqa: BLE001
-                # Loud, once per failure, on stderr (the journal on the body).
-                # A silent ingest is a silent feed, and a silent feed is what
-                # had Divv shouting at a console that was never on pub/sub.
-                import sys
+                if stop.is_set():
+                    # Closing the socket is how this loop is stopped. Reporting
+                    # that as a failure buries the real ones in noise.
+                    break
+                # Loud, on stderr (the journal on the body). A silent ingest is
+                # a silent feed, and a silent feed is what had Divv shouting at
+                # a console that was never on pub/sub.
                 print("loa-cortex: ingest failed: %s: %s"
                       % (type(e).__name__, e), file=sys.stderr, flush=True)
                 time.sleep(0.5)         # a bad message must not kill the ingest
         rx.close()
 
     threading.Thread(target=loop, daemon=True).start()
-    # The stop handle is returned rather than hidden: a test that cannot stop
-    # the ingest leaves a thread holding a database connection into the next
-    # test, which is exactly how a suite starts lying.
+    # The stop handle is returned rather than hidden: a test that cannot stop the
+    # ingest leaves a thread holding a store connection into the next test, which
+    # is exactly how a suite starts lying.
     return rx, stop.set
 
 
@@ -504,8 +648,19 @@ def main():
     import uvicorn
     host = os.environ.get("LOA_API_BIND", "0.0.0.0")
     port = int(os.environ.get("LOA_API_PORT", DEFAULT_PORT))
+    try:
+        st = store_mod.from_config()
+    except Exception as e:                                      # noqa: BLE001
+        print("loa-cortex: store config: %s: %s" % (type(e).__name__, e),
+              file=sys.stderr, flush=True)
+        st = None
+    if st is None:
+        print("loa-cortex: no store configured — settings held in RAM, "
+              "DB DOWN raised", file=sys.stderr, flush=True)
+    cortex.boot(st)
     start_publishing(os.environ.get("LOA_TOPIC_ENDPOINT"))
-    if os.environ.get("LOA_INGEST", "on").lower() not in ("0", "false", "no", "off"):
+    if os.environ.get("LOA_INGEST", "on").lower() not in ("0", "false", "no",
+                                                          "off"):
         start_ingesting(os.environ.get("LOA_INGEST_ENDPOINT"))
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
