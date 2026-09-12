@@ -40,6 +40,30 @@ BUS_OWNERS = {"/dev/spidev0.0": "loa-oled", "/dev/spidev1.0": "loa-presence"}
 BUS_LABEL = {"/dev/spidev0.0": "FACE", "/dev/spidev1.0": "RING"}
 
 DISK_WARN_PCT = 85
+FAULTS_STALE_S = 300.0      # 5 missed sweeps at 1/min = the sense has gone deaf
+CONDITIONS = ("well", "niggle", "hurts", "mute")
+
+
+def condition(report=None):
+    """How the body should carry itself — the wordless tell for the ring.
+
+    well   nothing wrong
+    niggle warnings only
+    hurts  at least one fault
+    mute   nothing published, or the sweep has gone stale. The sense itself is
+           dead. This is the loudest state there is and it must never read as
+           calm: a body that has gone quiet is not a body that is fine.
+    """
+    rep = status() if report is None else report
+    if not rep:
+        return "mute"
+    if time.time() - (rep.get("ts") or 0) > FAULTS_STALE_S:
+        return "mute"
+    if rep.get("faults"):
+        return "hurts"
+    if rep.get("warns"):
+        return "niggle"
+    return "well"
 
 
 def _run(cmd, timeout=8):
@@ -118,15 +142,15 @@ def _check_buses(rows):
                          "text": f"{bus} held by something else: "
                                  + " | ".join(h.strip() for h in holders)})
         else:
-            # spidev is WRITE-ONLY — no readback exists on a WS2812 chain or an
-            # SH1106 panel, so driving a lit device and driving a wire into
-            # thin air look identical on the bus. Name it for what it is.
+            # spidev is write-only — no readback on a WS2812 chain or an SH1106
+            # panel — so name the OBSERVABLE fact: that hardware will be dark.
+            # Whether the cause is the daemon or an unplugged cable, a person
+            # looking at it sees the same thing, and that is what they need.
             label = BUS_LABEL.get(bus, bus.split("/")[-1][-3:].upper())
             rows.append({"level": "fault",
-                         "code": f"{label} NODRV",
+                         "code": f"{label} DARK",
                          "text": f"nothing is driving {bus} — expected "
-                                 f"{expected}. Write-only bus: this says "
-                                 f"nothing about whether hardware is attached."})
+                                 f"{expected}, so the {label.lower()} is dark"})
 
 
 def _temp_c():

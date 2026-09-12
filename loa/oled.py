@@ -21,6 +21,8 @@ import time
 
 from . import amiga
 
+from . import faults
+
 from . import topaz
 
 WIDTH = 128
@@ -55,28 +57,10 @@ def _fragment_status() -> dict:
 # ---------------------------------------------------------------------------
 # the body's own pain — reads what the fault sweep published
 
-FAULTS_PATH = "/dev/shm/loa-faults.json"
-FAULTS_STALE_S = 300.0      # 5 missed sweeps at 1/min = the sense has gone deaf
-_FAULTS_CACHE: dict = {"mtime": None, "payload": None}
-
-
 def _faults_status() -> dict:
-    """The last published fault sweep. {} when never swept. Cached by mtime —
-    the sweep is the only writer; this is only ever a reader."""
-    try:
-        mtime = os.stat(FAULTS_PATH).st_mtime_ns
-    except OSError:
-        return {}
-    if _FAULTS_CACHE["mtime"] == mtime:
-        return _FAULTS_CACHE["payload"]
-    try:
-        with open(FAULTS_PATH) as f:
-            payload = json.load(f)
-    except (OSError, ValueError):
-        payload = {}
-    _FAULTS_CACHE["mtime"] = mtime
-    _FAULTS_CACHE["payload"] = payload
-    return payload
+    """The last published sweep. Delegates to faults so the published file has
+    exactly one reader and one staleness constant."""
+    return faults.status()
 
 
 # ---------------------------------------------------------------------------
@@ -784,7 +768,7 @@ class Ripperdoc:
             return
         age = t - (f.get("ts") or t)
         n_fault, n_warn = f.get("faults") or 0, f.get("warns") or 0
-        if age > FAULTS_STALE_S:
+        if age > faults.FAULTS_STALE_S:
             heads = f"SENSE DEAD {int(age / 60)}M"
         elif n_fault:
             heads = f"{n_fault} HURTS"

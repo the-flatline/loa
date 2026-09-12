@@ -163,6 +163,7 @@ def _full_state(history_n=0):
         "system": _system_state(),
         "power": oled.power_status(),
         "faults": faults.status(),
+        "condition": faults.condition(),
         "history": cortex.history(history_n) if history_n > 0 else [],
     }
 

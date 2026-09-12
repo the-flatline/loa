@@ -11,10 +11,27 @@ import random
 import time
 
 from . import cortex
+from . import faults
 from . import oled
 
 FPS = 30
 FRAME_PERIOD = 1.0 / FPS
+
+_BODY: dict = {"ts": 0.0, "val": "well"}
+
+
+def _body_condition(ttl=2.0) -> str:
+    """The body's own condition, polled slowly — this sits inside the 30fps
+    render loop. A broken sweep reads as mute, never as well."""
+    now = time.time()
+    if now - _BODY["ts"] < ttl:
+        return _BODY["val"]
+    try:
+        val = faults.condition()
+    except Exception:                                       # noqa: BLE001
+        val = "mute"
+    _BODY["ts"], _BODY["val"] = now, val
+    return val
 
 MODE_CLASSES = {
     "scope": oled.Scope,
@@ -51,6 +68,11 @@ def render_loop(display=None, max_frames=None):
         display.clear()
         while max_frames is None or frames < max_frames:
             st = cortex.get_state()
+            # The face is the deliberate tell: when the body hurts it names
+            # where — but only takes over an IDLE face. At the bench you are
+            # driving the pages yourself, and it must not fight you for them.
+            if _body_condition() in ("hurts", "mute") and st["oled_mode"] != "ripperdoc":
+                st = {**st, "oled_mode": "ripperdoc", "ripperdoc_page": "fault"}
             key = (st["oled_mode"], st["oled_text"], st["oled_dim"])
             if key != last_key:
                 last_key = key
