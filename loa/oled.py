@@ -663,13 +663,22 @@ class Ripperdoc:
             for xx in range(cx - r, cx + r + 1):
                 if (xx - cx) ** 2 + (yy - cy) ** 2 <= r ** 2:
                     frame.px(xx, yy)
-        # mercury — solid bar from the bulb to the fill level, no tube
-        # outline: the empty range is just dark screen
-        sx, sy = cx + r, y + 3
-        sw, sh = 96, 8
-        fill = int(frac * sw)
+        # tube — 1px walls, hollow interior, rounded right cap (icon style)
+        sx, sy, sw, sh = cx + r, y + 3, 98, 9
+        frame.line(sx, sy, sx + sw, sy)              # top wall
+        frame.line(sx, sy + sh, sx + sw, sy + sh)    # bottom wall
+        frame.line(sx + sw, sy + 1, sx + sw, sy + sh - 1)  # right cap
+        frame.px(sx + sw + 1, sy + 2)                # cap rounding
+        frame.px(sx + sw + 1, sy + sh - 2)
+        # graduation ticks above the top wall
+        for i in range(1, 6):
+            tx = sx + int(i * sw / 6)
+            frame.px(tx, sy - 1)
+            frame.px(tx, sy - 2)
+        # mercury — solid inside the tube, from the bulb to the fill level
+        fill = int(frac * (sw - 1))
         if fill > 0:
-            for yy in range(sy, sy + sh):
+            for yy in range(sy + 1, sy + sh):
                 for xx in range(sx, sx + fill):
                     frame.px(xx, yy)
 
