@@ -120,6 +120,13 @@ def _check_buses(rows):
                          "text": f"nothing holds {bus} — expected {expected}"})
 
 
+def _temp_c():
+    rc, out, _ = _run("vcgencmd measure_temp")
+    if rc == 0 and "=" in out:
+        return out.strip().split("=")[1].replace("'C", "C")
+    return "temp unknown"
+
+
 def _check_rails(rows):
     rc, out, _ = _run("vcgencmd get_throttled")      # Pi-only; silent elsewhere
     if rc != 0 or "=" not in out:
@@ -128,14 +135,23 @@ def _check_rails(rows):
         bits = int(out.split("=")[1], 16)
     except ValueError:
         return
+    # Bits 0-3 are the LIVE conditions and they are independent — check each,
+    # never `elif`. Bit 3 is the soft TEMPERATURE limit: leave it out and a
+    # thermally-limited Pi reads as healthy, which is how a real 84C throttle
+    # went unreported. Bit 1 is only a cap; bit 2 is the cap doing its job.
     if bits & 0x1:
         rows.append({"level": "fault", "code": "UNDERVOLT",
                      "text": f"5V input sagging RIGHT NOW (throttled={hex(bits)})"})
-    elif bits & 0x4:
+    if bits & 0x8:
+        rows.append({"level": "fault", "code": "THERMAL",
+                     "text": f"soft temp limit ACTIVE at {_temp_c()} "
+                             f"(throttled={hex(bits)})"})
+    if bits & 0x4:
         rows.append({"level": "fault", "code": "THROTTLED",
                      "text": f"SoC throttling RIGHT NOW (throttled={hex(bits)})"})
-    elif bits & 0x3:
-        pass
+    if bits & 0x2:
+        rows.append({"level": "warn", "code": "FREQ-CAP",
+                     "text": f"ARM frequency capped (throttled={hex(bits)})"})
 
 
 def _check_disk(rows):

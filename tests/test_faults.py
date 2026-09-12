@@ -29,6 +29,45 @@ def test_status_is_empty_not_an_error_when_never_swept():
     assert isinstance(st, dict)
 
 
+def test_every_live_throttle_condition_is_reported():
+    """Bits 0-3 are independent. Reporting only one of them is how a thermally
+    limited Pi reads as healthy (found live: 84C, throttled=0xf0008)."""
+    import loa.faults as f
+
+    rows = []
+
+    class _R:                                             # noqa: D401
+        def __init__(self, bits):
+            self.bits = bits
+
+        def __call__(self, cmd, timeout=8):
+            if "get_throttled" in cmd:
+                return 0, f"throttled=0x{self.bits:x}", ""
+            if "measure_temp" in cmd:
+                return 0, "temp=84.0'C", ""
+            return 1, "", ""
+
+    orig = f._run
+    try:
+        f._run = _R(0x8)                                  # soft temp limit only
+        f._check_rails(rows)
+        assert [r["code"] for r in rows] == ["THERMAL"]
+        assert "84.0C" in rows[0]["text"]
+
+        rows.clear()
+        f._run = _R(0x5)                                  # under-voltage + throttled
+        f._check_rails(rows)
+        codes = [r["code"] for r in rows]
+        assert "UNDERVOLT" in codes and "THROTTLED" in codes, codes
+
+        rows.clear()
+        f._run = _R(0x0)                                  # healthy is silent
+        f._check_rails(rows)
+        assert rows == []
+    finally:
+        f._run = orig
+
+
 def test_quiet_format_prints_only_faults():
     rep = {"ts": 0.0, "boot": "test", "faults": 1, "warns": 1, "rows": [
         {"level": "fault", "code": "OLED-DEAD", "text": "nothing holds it"},
