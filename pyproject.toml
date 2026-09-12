@@ -13,7 +13,7 @@ dependencies = ["spidev>=3.5", "cryptography>=42"]
 
 [project.optional-dependencies]
 api = ["fastapi>=0.110", "uvicorn>=0.27", "cryptography>=42"]
-bench = ["textual>=0.60"]
+ripperdoc = ["textual>=0.60"]
 
 [dependency-groups]
 dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110", "cryptography>=42"]
@@ -24,7 +24,7 @@ loa-sense = "loa.sense:main"
 loa-ctl = "loa.control:serve"
 loa-api = "loa.api:main"
 loa-oled = "loa.oled_daemon:main"
-loa-bench = "loa.bench:main"
+ripperdoc = "loa.ripperdoc:main"
 
 [tool.setuptools]
 packages = ["loa"]

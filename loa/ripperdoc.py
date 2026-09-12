@@ -1,14 +1,14 @@
-"""bench — the bench console (loa-bench). Textual TUI + quick CLI.
+"""ripperdoc — the bench console. Textual TUI + quick CLI.
 
 Two faces, one command:
 
-  loa-bench            — the TUI: Workbench-chrome console with digital twin
+  ripperdoc            — the TUI: Workbench-chrome console with digital twin
                          panes (OLED + ring rendered by the REAL loa
                          renderers), live status, ripperdoc/mood/page keys.
-  loa-bench on [page]  — flip ripperdoc on (page: sensors|pir|snr|frag)
-  loa-bench off        — back to scope
-  loa-bench page <p>   — switch the ripperdoc page
-  loa-bench status     — what the face is doing now
+  ripperdoc on [page]  — flip ripperdoc on (page: sensors|pir|snr|temp|frag)
+  ripperdoc off        — back to scope
+  ripperdoc page <p>   — switch the ripperdoc page
+  ripperdoc status     — what the face is doing now
 
 Runs ON loa, talks to the cortex API on 127.0.0.1:8765 (LOA_API_BIND/PORT
 override) — no listener of its own, no web. You SSH to the box and run it.
@@ -145,8 +145,8 @@ def fetch_sense():
             f"N{st.get('sense_count', 0):04d} T{st.get('pir_last_hold', 0.0):5.1f}s")
 
 
-class BenchApp(App):
-    """loa-bench — the bench console."""
+class RipperdocApp(App):
+    """ripperdoc — the bench console."""
 
     CSS = CSS
     BINDINGS = [
@@ -154,8 +154,9 @@ class BenchApp(App):
         ("1", "page_sensors", "sensors page"),
         ("2", "page_pir", "pir page"),
         ("3", "page_snr", "snr page"),
-        ("4", "page_frag", "frag page"),
-        ("m", "mood", "cycle mood"),
+        ("4", "page_temp", "temp page"),
+        ("5", "page_frag", "frag page"),
+        ("m", "mood", "next mood"),
         ("q", "quit", "quit"),
     ]
 
@@ -240,6 +241,12 @@ class BenchApp(App):
         except Exception:
             pass
 
+    def action_page_temp(self):
+        try:
+            _post("/ripperdoc", {"page": "temp"})
+        except Exception:
+            pass
+
     def action_page_frag(self):
         try:
             _post("/ripperdoc", {"page": "frag"})
@@ -262,7 +269,7 @@ class BenchApp(App):
 def main():
     args = sys.argv[1:]
     if not args:
-        BenchApp().run()
+        RipperdocApp().run()
         return 0
     if args[0] in ("help", "-h", "--help"):
         print(__doc__)
@@ -282,7 +289,7 @@ def main():
         elif cmd == "page":
             page = args[1] if len(args) > 1 else None
             if page is None:
-                print("usage: loa-bench page <sensors|pir|snr|frag>")
+                print("usage: ripperdoc page <sensors|pir|snr|temp|frag>")
                 return 2
             r = _post("/ripperdoc", {"page": page})
             print(f"page {r['page']}")
@@ -294,7 +301,7 @@ def main():
             print(f"unknown command: {cmd}")
             return 2
     except Exception as e:
-        print(f"loa-bench: {e}", file=sys.stderr)
+        print(f"ripperdoc: {e}", file=sys.stderr)
         return 1
     return 0
 

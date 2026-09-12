@@ -344,25 +344,25 @@ render_loop(max_frames=5)
 check("oled daemon renders ripperdoc", True)
 cortex.set_state({"oled_mode": "scope"})
 
-print("== bench twin (no hardware) ==\n")
+print("== ripperdoc twin (no hardware) ==\n")
 
-from loa import bench  # noqa: E402
+from loa import ripperdoc  # noqa: E402
 
 fb = oled.Frame()
 fb.px(0, 0)
-art = bench.oled_art(fb)
+art = ripperdoc.oled_art(fb)
 check("oled twin renders pixels", "▀" in art or "█" in art)
 fb.clear()
-check("oled twin blank is blank", bench.oled_art(fb).strip() == "")
-ring = bench.ring_art_bytes(bytes([255, 0, 0]) * 24)
+check("oled twin blank is blank", ripperdoc.oled_art(fb).strip() == "")
+ring = ripperdoc.ring_art_bytes(bytes([255, 0, 0]) * 24)
 check("ring twin renders markup", "[on rgb(255,0,0)]" in ring)
 check("ring twin dim shape present", "[on rgb(12,16,12)]" in ring)
 check("ring 24 unique ordered slots",
-      len(set(bench._led_positions())) == 24)
+      len(set(ripperdoc._led_positions())) == 24)
 
 
 async def _pilot():
-    app = bench.BenchApp()
+    app = ripperdoc.RipperdocApp()
     async with app.run_test() as pilot:
         await pilot.pause()
         app.query_one("#status", Static).update("ok")
@@ -373,6 +373,6 @@ async def _pilot():
 import asyncio  # noqa: E402
 from textual.widgets import Static  # noqa: E402
 asyncio.run(_pilot())
-check("bench app boots headless", True)
+check("ripperdoc app boots headless", True)
 
 print(f"\nALL {PASS} CHECKS PASSED")
