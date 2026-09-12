@@ -795,7 +795,10 @@ class Ripperdoc:
         amiga.draw(frame, heads[:14], 2, 10, size=8)
         y = 19
         for r in (f.get("rows") or [])[:5]:
-            amiga.draw(frame, str(r.get("code", "?"))[:14], 2, y, size=8)
+            # `face` carries the evidence the code alone loses — HOT is a name,
+            # "HOT 86C" is something you can act on.
+            label = str(r.get("face") or r.get("code", "?"))
+            amiga.draw(frame, label[:14], 2, y, size=8)
             y += 9
 
     def _page_power(self, frame, t, st):

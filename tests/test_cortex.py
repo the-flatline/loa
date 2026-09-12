@@ -58,10 +58,14 @@ check("state has sensors (honest)", r.json()["sensors"]["available"] is False)
 cortex.set_state({"pressure_hpa": 1026.0, "baro_temp_c": 23.1, "baro_ts": 1.0})
 r = c.get("/state")
 check("state baro block live", r.json()["sensors"]["baro"]["available"] is True
-      and r.json()["sensors"]["baro"]["pressure_hpa"] == 1026.0)
+      and r.json()["sensors"]["baro"]["pressure_hpa"] == 1026.0
+      and r.json()["sensors"]["baro"]["trend"]["dir"]
+      in ("rising", "falling", "steady"))
 r = c.get("/twin")
 check("twin carries weather", r.json()["status"]["pressure_hpa"] == 1026.0
-      and r.json()["status"]["temp_c"] is None)
+      and r.json()["status"]["temp_c"] is None
+      and "baro_trend" in r.json()["status"]
+      and isinstance(r.json()["status"]["baro_series"], list))
 
 for mood in moods.MOODS:
     r = c.post("/feel", json={"feeling": mood})
@@ -268,6 +272,36 @@ _t, _p = sense_mod.BMP180._compensate(_cal, 29108, 43654)
 check("baro compensation matches live chip", round(_t, 1) == 23.1
       and round(_p / 100.0, 1) == 1026.0)
 
+print("== baro trend ==\n")
+
+# pure trend math — synthetic series, no database
+now = 1_000_000.0
+pairs = [(now - 3 * 3600 + i * 600, 1013.0 + i * 0.2) for i in range(19)]
+tr = cortex._trend_from_samples(pairs, now, 3 * 3600)
+check("trend rising detected", tr["dir"] == "rising"
+      and tr["slope_hpa_per_h"] > 0.9)
+flat = [(now - i * 600, 1013.0) for i in range(19)]
+tr2 = cortex._trend_from_samples(flat, now, 3 * 3600)
+check("trend flat reads steady", tr2["dir"] == "steady")
+down = [(now - 3 * 3600 + i * 600, 1020.0 - i * 0.2) for i in range(19)]
+tr3 = cortex._trend_from_samples(down, now, 3 * 3600)
+check("trend falling detected", tr3["dir"] == "falling")
+tr4 = cortex._trend_from_samples([], now, 3 * 3600)
+check("trend no samples steady", tr4["dir"] == "steady")
+
+# telemetry storage + db-backed trend — runs BEFORE the daemon tick test
+# so the table only holds these three synthetic samples
+rnow = time.time()
+cortex.baro_sample(1013.0, 21.0, rnow - 100)
+cortex.baro_sample(1013.5, 21.1, rnow - 50)
+cortex.baro_sample(1014.0, 21.2, rnow)
+rows = cortex.baro_samples(since=rnow - 200)
+check("baro samples stored", len(rows) == 3 and rows[-1][1] == 1014.0)
+rows2 = cortex.baro_samples(since=rnow - 60)
+check("baro samples windowed", len(rows2) == 2)
+tr5 = cortex.baro_trend(window_s=3 * 3600, now=rnow)
+check("baro trend from db", tr5["dir"] == "rising")
+
 cortex.set_state({"pressure_hpa": None, "baro_temp_c": None,
                   "baro_ts": None, "baro_count": 0})
 _b = sense_mod.BMP180(period=0.0, reader=lambda: (23.1, 102600.0))
@@ -282,7 +316,7 @@ st = cortex.get_state()
 check("baro no-read leaves state", st["pressure_hpa"] == 1026.0
       and st["baro_count"] == 1)
 
-print("== ripperdoc mode ==")
+print("== ripperdoc mode ==\n")
 
 r = c.post("/ripperdoc", json={"on": True})
 check("ripperdoc on", r.status_code == 200 and r.json()["ripperdoc"] is True
@@ -369,6 +403,31 @@ frag_buf = bytes(fb.buf)
 check("ripperdoc frag page draws", sum(frag_buf) > 0)
 check("ripperdoc frag page has lock + text pixels",
       sum(frag_buf) > 0 and len(frag_buf) == len(off_buf))
+
+
+def px_on(buf, x, y):
+    return bool(buf[(y >> 3) * 128 + x] & (1 << (y & 7)))
+
+
+# temp page: pressure value + trend caret (rising apex lit, absent w/o pressure)
+cortex.baro_sample(1013.0, 21.0, time.time() - 200)
+cortex.baro_sample(1013.6, 21.1, time.time() - 100)
+cortex.baro_sample(1014.2, 21.2, time.time())
+fb.clear()
+rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
+                          "sense_ts": 96.8, "ripperdoc_page": "temp",
+                          "temp_c": 23.0, "hum_pct": 50.0,
+                          "pressure_hpa": 1014.2})
+buf_p = bytes(fb.buf)
+cx = 128 - amiga.width("1014HPA", 8) - 8
+check("temp page draws pressure + trend caret",
+      sum(buf_p) > 0 and px_on(buf_p, cx + 3, 45))
+fb.clear()
+rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 7,
+                          "sense_ts": 96.8, "ripperdoc_page": "temp",
+                          "temp_c": 23.0, "hum_pct": 50.0,
+                          "pressure_hpa": None})
+check("temp page no pressure no caret", not px_on(bytes(fb.buf), cx + 3, 45))
 cortex.set_state({"oled_mode": "ripperdoc"})
 render_loop(max_frames=5)
 check("oled daemon renders ripperdoc", True)

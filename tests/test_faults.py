@@ -88,6 +88,15 @@ def test_bus_labels_cover_every_expected_bus():
         assert len(f"{label} NODRV") <= 14      # the face draws 14 chars
 
 
+def test_face_labels_carry_the_evidence_and_fit():
+    """The PAIN page draws the row's `face`. A code with no number is a name
+    with no use: 'HOT' tells you nothing you can act on, 'HOT 86C' does."""
+    assert len("HOT 86C") <= 14
+    for r in faults.sweep()["rows"]:
+        label = r.get("face") or r["code"]
+        assert len(label) <= 14, f"{label!r} will not fit the face"
+
+
 def test_quiet_format_prints_only_faults():
     rep = {"ts": 0.0, "boot": "test", "faults": 1, "warns": 1, "rows": [
         {"level": "fault", "code": "OLED-DEAD", "text": "nothing holds it"},

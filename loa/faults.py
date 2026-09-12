@@ -188,6 +188,8 @@ def _check_rails(rows):
         hot = temp is None or temp >= 80.0
         rows.append({"level": "fault",
                      "code": "HOT" if hot else "THROTTLED",
+                     "face": (f"HOT {temp:.0f}C" if hot and temp is not None
+                              else "HOT" if hot else "THROTTLED"),
                      "text": (f"SoC at {temp}C — freq-capped/throttling to cope"
                               if temp is not None else
                               "SoC throttling — temperature unreadable")
