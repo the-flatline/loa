@@ -5,7 +5,7 @@ Two faces, one command:
   ripperdoc            — the TUI: Workbench-chrome console with digital twin
                          panes (OLED + ring rendered by the REAL loa
                          renderers), live status, ripperdoc/mood/page keys.
-  ripperdoc on [page]  — flip ripperdoc on (page: sensors|pir|snr|temp|frag|power)
+  ripperdoc on [page]  — flip ripperdoc on (page: sensors|pir|snr|temp|frag|power|fault)
   ripperdoc off        — back to scope
   ripperdoc page <p>   — switch the ripperdoc page
   ripperdoc status     — what the face is doing now
@@ -168,6 +168,7 @@ class RipperdocApp(App):
         ("4", "page_temp", "temp page"),
         ("5", "page_frag", "frag page"),
         ("6", "page_power", "power page"),
+        ("7", "page_fault", "fault page"),
         ("m", "mood", "next mood"),
         ("q", "quit", "quit"),
     ]
@@ -271,6 +272,12 @@ class RipperdocApp(App):
         except Exception:
             pass
 
+    def action_page_fault(self):
+        try:
+            _post("/ripperdoc", {"page": "fault"})
+        except Exception:
+            pass
+
     def action_mood(self):
         from . import moods
         names = list(moods.MOODS)
@@ -307,7 +314,7 @@ def main():
         elif cmd == "page":
             page = args[1] if len(args) > 1 else None
             if page is None:
-                print("usage: ripperdoc page <sensors|pir|snr|temp|frag|power>")
+                print("usage: ripperdoc page <sensors|pir|snr|temp|frag|power|fault>")
                 return 2
             r = _post("/ripperdoc", {"page": page})
             print(f"page {r['page']}")

@@ -1,0 +1,244 @@
+"""faults — the body's own pain sense.
+
+Running this ON the loa, not on dixie, is the point: the thing being checked
+reports on itself. No SSH, no network, no dependency on the brain being
+reachable — an isolated Pi still knows its own leg is broken.
+
+Born 2026-09-12, when a crash-looping face daemon read as dead hardware for
+half an hour because nothing told anyone: `loa-oled` was exiting 203/EXEC on
+zero-byte console scripts and `Restart=always` kept it silently retrying.
+
+A fault is only useful if it names itself. Each row carries a SHORT code for
+the face (<=14 chars, it has 128 pixels to work with) and a longer line for
+the API and the log.
+
+Sweep writes /dev/shm/loa-faults.json (RAM — the body's live state dies with
+the machine and republishes on boot, per Divv's standing posture). Exit code
+is the signal: 0 quiet, 1 hurting. `--quiet` prints only faults.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+FAULTS_PATH = "/dev/shm/loa-faults.json"
+
+# Units the body expects to exist and be running. loa-presence is the ring
+# (its unit has been missing from /etc/systemd/system before now).
+UNITS = ("loa-api", "loa-oled", "loa-sense", "loa-presence")
+
+# Console scripts an unclean shutdown has zeroed before (empty file =>
+# Exec format error => crash-loop that looks like a dead device).
+SCRIPTS_DIR = "/home/flatline/venv/bin"
+SCRIPTS = ("loa-api", "loa-oled", "loa-presence", "loa-sense", "ripperdoc")
+
+# Who should hold which SPI bus. Two writers on one bus is the classic
+# ghost-in-the-panel fault.
+BUS_OWNERS = {"/dev/spidev0.0": "loa-oled", "/dev/spidev1.0": "loa-presence"}
+
+DISK_WARN_PCT = 85
+
+
+def _run(cmd, timeout=8):
+    """Never raise — a check that dies takes the sweep with it."""
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                           timeout=timeout)
+        return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
+    except Exception as e:                                      # noqa: BLE001
+        return 1, "", f"{type(e).__name__}: {e}"
+
+
+def _check_units(rows):
+    for unit in UNITS:
+        rc, out, _ = _run(f"systemctl is-active {unit}.service")
+        state = out or "unknown"
+        if state == "active":
+            continue
+        # "activating" with Restart=always is a service that is running and
+        # failing — it is NOT the same fault as a dead one, and reading it as
+        # "device broken" is exactly the mistake this module exists to stop.
+        if state in ("activating", "auto-restart", "reloading"):
+            rows.append({
+                "level": "fault",
+                "code": f"{unit.split('-')[1].upper()} LOOP",
+                "text": f"{unit} is CRASH-LOOPING ({state}) — running and "
+                        f"failing. Check its log before believing anything "
+                        f"downstream is broken.",
+            })
+        elif state == "inactive" and unit == "loa-presence":
+            exists = os.path.exists("/etc/systemd/system/loa-presence.service")
+            rows.append({
+                "level": "warn",
+                "code": "RING OFF",
+                "text": ("loa-presence not running — unit file "
+                         + ("present but stopped" if exists
+                            else "MISSING from /etc/systemd/system")),
+            })
+        else:
+            rows.append({"level": "fault",
+                         "code": f"{unit.split('-')[1].upper()} DOWN",
+                         "text": f"{unit} is {state}"})
+
+
+def _check_scripts(rows):
+    zeroed = []
+    for name in SCRIPTS:
+        path = os.path.join(SCRIPTS_DIR, name)
+        try:
+            if os.path.getsize(path) == 0:
+                zeroed.append(name)
+        except OSError:
+            pass
+    if zeroed:
+        rows.append({
+            "level": "fault",
+            "code": "SCRIPTS 0B",
+            "text": "ZERO-BYTE console scripts (Exec format error, will "
+                    "crash-loop silently): " + ", ".join(zeroed)
+                    + " — regenerate with pip install --force-reinstall",
+        })
+
+
+def _check_buses(rows):
+    for bus, expected in BUS_OWNERS.items():
+        if not os.path.exists(bus):
+            continue
+        rc, out, _ = _run(f"sudo fuser -v {bus} 2>&1")
+        holders = [ln for ln in out.splitlines() if bus in ln]
+        if any(expected in h for h in holders):
+            continue
+        if holders:
+            rows.append({"level": "fault", "code": "BUS CLASH",
+                         "text": f"{bus} held by something else: "
+                                 + " | ".join(h.strip() for h in holders)})
+        else:
+            rows.append({"level": "fault",
+                         "code": bus.split("/")[-1][-3:].upper() + " FREE",
+                         "text": f"nothing holds {bus} — expected {expected}"})
+
+
+def _check_rails(rows):
+    rc, out, _ = _run("vcgencmd get_throttled")      # Pi-only; silent elsewhere
+    if rc != 0 or "=" not in out:
+        return                                        # off-Pi: not a fault
+    try:
+        bits = int(out.split("=")[1], 16)
+    except ValueError:
+        return
+    if bits & 0x1:
+        rows.append({"level": "fault", "code": "UNDERVOLT",
+                     "text": f"5V input sagging RIGHT NOW (throttled={hex(bits)})"})
+    elif bits & 0x4:
+        rows.append({"level": "fault", "code": "THROTTLED",
+                     "text": f"SoC throttling RIGHT NOW (throttled={hex(bits)})"})
+    elif bits & 0x3:
+        pass
+
+
+def _check_disk(rows):
+    try:
+        free_gb = shutil.disk_usage("/").free / 1e9
+        total_gb = shutil.disk_usage("/").total / 1e9
+        used_pct = int(100 * (1 - free_gb / total_gb))
+    except OSError:
+        return
+    if used_pct >= DISK_WARN_PCT:
+        rows.append({"level": "warn", "code": f"DISK {used_pct}%",
+                     "text": f"root filesystem {used_pct}% used "
+                             f"({free_gb:.1f} GB free)"})
+
+
+def _check_api(rows):
+    rc, out, _ = _run("curl -s -m 5 http://127.0.0.1:8765/health")
+    if '"ok"' not in out:
+        rows.append({"level": "fault", "code": "API DEAD",
+                     "text": f"cortex API not answering on :8765 ({out[:60]!r})"})
+
+
+def _check_i2c(rows):
+    """The baro lesson: /dev/i2c-N only exists once i2c-dev is loaded, and
+    Debian does not load it at boot unless it is pinned."""
+    if not os.path.exists("/dev/i2c-1") and os.path.exists("/proc/device-tree"):
+        rows.append({"level": "warn", "code": "I2C NO DOOR",
+                     "text": "/dev/i2c-1 absent — i2c-dev not loaded (a blind "
+                             "bus, not a dead chip)"})
+
+
+def sweep():
+    """Return {"ts", "boot", "rows": [...]}. Faults first, worst first."""
+    rows = []
+    for check in (_check_units, _check_scripts, _check_buses, _check_rails,
+                  _check_disk, _check_api, _check_i2c):
+        try:
+            check(rows)
+        except Exception as e:                                  # noqa: BLE001
+            rows.append({"level": "warn", "code": "CHECK ERR",
+                         "text": f"{check.__name__} blew up: "
+                                 f"{type(e).__name__}: {e}"})
+    order = {"fault": 0, "warn": 1}
+    rows.sort(key=lambda r: order.get(r["level"], 2))
+    report = {
+        "ts": time.time(),
+        "boot": _boot_id(),
+        "rows": rows,
+        "faults": sum(1 for r in rows if r["level"] == "fault"),
+        "warns": sum(1 for r in rows if r["level"] == "warn"),
+    }
+    return report
+
+
+def _boot_id():
+    try:
+        with open("/proc/sys/kernel/random/boot_id") as f:
+            return f.read().strip()[:8]
+    except OSError:
+        return None
+
+
+def publish(report=None):
+    """Write the sweep to RAM. Best-effort — a publish failure is not a fault."""
+    report = report or sweep()
+    tmp = FAULTS_PATH + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(report, f)
+        os.replace(tmp, FAULTS_PATH)
+    except OSError:
+        pass
+    return report
+
+
+def status():
+    """Read the last published sweep; {} when never swept."""
+    try:
+        with open(FAULTS_PATH) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def format_report(report, quiet=False):
+    verb = "HURTS" if report["faults"] else (
+        "niggles" if report["warns"] else "quiet")
+    lines = [f"{verb} — {time.strftime('%Y-%m-%d %H:%M %Z', time.localtime(report['ts']))}"
+             f"  boot {report['boot']}"]
+    for r in report["rows"]:
+        if quiet and r["level"] != "fault":
+            continue
+        lines.append(f"  {r['level']:<5} {r['code']:<12} {r['text']}")
+    return "\n".join(lines)
+
+
+def main():
+    quiet = "--quiet" in sys.argv
+    report = publish()
+    if report["faults"] or not quiet:
+        print(format_report(report, quiet=quiet))
+    return 1 if report["faults"] else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

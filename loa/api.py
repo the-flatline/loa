@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from . import __version__
 from . import cortex
+from . import faults
 from . import expressions as expr
 from . import fragment as fragment_mod
 from . import moods
@@ -161,6 +162,7 @@ def _full_state(history_n=0):
         },
         "system": _system_state(),
         "power": oled.power_status(),
+        "faults": faults.status(),
         "history": cortex.history(history_n) if history_n > 0 else [],
     }
 

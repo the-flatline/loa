@@ -25,6 +25,7 @@ loa-ctl = "loa.control:serve"
 loa-api = "loa.api:main"
 loa-oled = "loa.oled_daemon:main"
 ripperdoc = "loa.ripperdoc:main"
+loa-faults = "loa.faults:main"
 
 [tool.setuptools]
 packages = ["loa"]

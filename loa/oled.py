@@ -53,6 +53,33 @@ def _fragment_status() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# the body's own pain — reads what the fault sweep published
+
+FAULTS_PATH = "/dev/shm/loa-faults.json"
+FAULTS_STALE_S = 300.0      # 5 missed sweeps at 1/min = the sense has gone deaf
+_FAULTS_CACHE: dict = {"mtime": None, "payload": None}
+
+
+def _faults_status() -> dict:
+    """The last published fault sweep. {} when never swept. Cached by mtime —
+    the sweep is the only writer; this is only ever a reader."""
+    try:
+        mtime = os.stat(FAULTS_PATH).st_mtime_ns
+    except OSError:
+        return {}
+    if _FAULTS_CACHE["mtime"] == mtime:
+        return _FAULTS_CACHE["payload"]
+    try:
+        with open(FAULTS_PATH) as f:
+            payload = json.load(f)
+    except (OSError, ValueError):
+        payload = {}
+    _FAULTS_CACHE["mtime"] = mtime
+    _FAULTS_CACHE["payload"] = payload
+    return payload
+
+
+# ---------------------------------------------------------------------------
 # Pi 5 rails + under-voltage flags for the PWR page — cached, sanctioned
 
 _POWER_CACHE: dict = {"ts": 0.0, "data": {}}
@@ -612,7 +639,7 @@ class Ripperdoc:
     """
 
     TITLE = "RIPPERDOC"
-    PAGES = ("sensors", "pir", "snr", "temp", "frag", "power")
+    PAGES = ("sensors", "pir", "snr", "temp", "frag", "power", "fault")
 
     def draw_state(self, frame, t, st):
         page = st.get("ripperdoc_page", "sensors")
@@ -626,12 +653,14 @@ class Ripperdoc:
             self._page_frag(frame, t, st)
         elif page == "power":
             self._page_power(frame, t, st)
+        elif page == "fault":
+            self._page_fault(frame, t, st)
         else:
             self._page_sensors(frame, t, st)
 
     def _page_sensors(self, frame, t, st):
         amiga.draw(frame, self.TITLE, 2, 1, size=8)
-        amiga.draw(frame, "1/6", 99, 1, size=8)
+        amiga.draw(frame, "1/7", 99, 1, size=8)
         self._indicator(frame, 2, 12, "PIR", bool(st.get("pir_high")))
         self._indicator(frame, 39, 12, "SNR", st.get("snr_cm") is not None)
         self._indicator(frame, 85, 12, "TMP", st.get("temp_c") is not None)
@@ -648,7 +677,7 @@ class Ripperdoc:
 
     def _page_pir(self, frame, t, st):
         amiga.draw(frame, "PIR", 2, 1, size=8)
-        amiga.draw(frame, "2/6", 99, 1, size=8)
+        amiga.draw(frame, "2/7", 99, 1, size=8)
         self._indicator(frame, 2, 12, "PIR", bool(st.get("pir_high")))
         count = st.get("sense_count") or 0
         last = st.get("sense_ts")
@@ -665,7 +694,7 @@ class Ripperdoc:
 
     def _page_snr(self, frame, t, st):
         amiga.draw(frame, "SNR", 2, 1, size=8)
-        amiga.draw(frame, "3/6", 99, 1, size=8)
+        amiga.draw(frame, "3/7", 99, 1, size=8)
         snr_cm = st.get("snr_cm")
         if snr_cm is not None:
             amiga.draw(frame, f"{snr_cm:4.0f}CM", 2, 12, size=8)
@@ -681,7 +710,7 @@ class Ripperdoc:
 
     def _page_temp(self, frame, t, st):
         amiga.draw(frame, "TMP", 2, 1, size=8)
-        amiga.draw(frame, "4/6", 99, 1, size=8)
+        amiga.draw(frame, "4/7", 99, 1, size=8)
         temp = st.get("temp_c")
         hum = st.get("hum_pct")
         pressure = st.get("pressure_hpa")
@@ -730,7 +759,7 @@ class Ripperdoc:
 
     def _page_frag(self, frame, t, st):
         amiga.draw(frame, "FRAG", 2, 1, size=8)
-        amiga.draw(frame, "5/6", 99, 1, size=8)
+        amiga.draw(frame, "5/7", 99, 1, size=8)
         frag = _fragment_status()
         sealed = bool(frag.get("sealed"))
         self._lock(frame, 8, 16)
@@ -739,6 +768,35 @@ class Ripperdoc:
         access = frag.get("access_count") or 0
         amiga.draw(frame, f"N{count:03d}", 2, 32, size=8)
         amiga.draw(frame, f"A{access:03d}", 40, 32, size=8)
+
+    def _page_fault(self, frame, t, st):
+        """Where it hurts — the body's pain page.
+
+        The code and the API say `fault`; that is the engineering surface and
+        it is accurate. The face says PAIN, because...[truncated]
+        a pain sense that has gone deaf must not read as comfort.
+        """
+        amiga.draw(frame, "PAIN", 2, 1, size=8)
+        amiga.draw(frame, "7/7", 99, 1, size=8)
+        f = _faults_status()
+        if not f:
+            amiga.draw(frame, "NO SWEEP", 2, 10, size=8)
+            return
+        age = t - (f.get("ts") or t)
+        n_fault, n_warn = f.get("faults") or 0, f.get("warns") or 0
+        if age > FAULTS_STALE_S:
+            heads = f"SENSE DEAD {int(age / 60)}M"
+        elif n_fault:
+            heads = f"{n_fault} HURTS"
+        elif n_warn:
+            heads = f"{n_warn} NIGGLE"
+        else:
+            heads = "ALL QUIET"
+        amiga.draw(frame, heads[:14], 2, 10, size=8)
+        y = 19
+        for r in (f.get("rows") or [])[:5]:
+            amiga.draw(frame, str(r.get("code", "?"))[:14], 2, y, size=8)
+            y += 9
 
     def _page_power(self, frame, t, st):
         """The bench's power truth. The 5V input and the 3V3 rail it feeds,
@@ -756,7 +814,7 @@ class Ripperdoc:
         8px pitch gives a 1px gutter and the last row lands at 62 of 64.
         """
         amiga.draw(frame, "PWR", 2, 1, size=8)
-        amiga.draw(frame, "6/6", 99, 1, size=8)
+        amiga.draw(frame, "6/7", 99, 1, size=8)
         p = power_status()
         flags = p.get("throttled")
         self._indicator(frame, 2, 11, "UV",
