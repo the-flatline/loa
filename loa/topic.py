@@ -151,10 +151,10 @@ class Publisher:
         self.send(env)
         return env
 
-    def publish_twin(self, face: bytes, ring: bytes):
+    def publish_frames(self, face: bytes, ring: bytes):
         env = _envelope()
-        env.twin.face = bytes(face)
-        env.twin.ring = bytes(ring)
+        env.frames.face = bytes(face)
+        env.frames.ring = bytes(ring)
         self.send(env)
         return env
 
@@ -304,9 +304,9 @@ def main(argv=None):
             if env is None:
                 continue
             which = env.WhichOneof("body")
-            if which == "twin":
-                print("twin  face=%dB ring=%dB"
-                      % (len(env.twin.face), len(env.twin.ring)), flush=True)
+            if which == "frames":
+                print("frames face=%dB ring=%dB"
+                      % (len(env.frames.face), len(env.frames.ring)), flush=True)
             elif which == "state":
                 print("state mood=%s ring=%s oled=%s condition=%s pir=%s"
                       % (env.state.mood, env.state.ring_state,

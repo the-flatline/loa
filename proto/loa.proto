@@ -23,7 +23,7 @@ message Envelope {
 
   oneof body {
     State state = 2;   // state changed — the live picture, RAM-shaped
-    Twin twin = 3;     // a frame moved — raw bytes, never encoded
+    Frames frames = 3; // a frame moved — raw bytes, never encoded
     Event event = 4;   // something happened — a record
   }
 }
@@ -62,7 +62,11 @@ message State {
 
 // A frame moved. RAW bytes — protobuf carries them, so no hex, no base64, and
 // nothing to guess at. This is why the encoding is declared in the schema.
-message Twin {
+//
+// NOT a consumer and not "the twin". This is the payload: the pixels the body
+// is driving. "The twin" is the whole mirror a consumer assembles — State plus
+// Frames — which is what twin.json used to be.
+message Frames {
   bytes face = 1;   // 1024 bytes, 1bpp, the panel as driven
   bytes ring = 2;   // 72 bytes, 24 px RGB, as driven
 }

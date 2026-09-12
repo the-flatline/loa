@@ -79,13 +79,13 @@ def test_bytes_cross_the_wire_raw():
 
     face = bytes(range(256)) * 4            # 1024, exactly a panel
     ring = bytes([0, 0, 216] * 24)          # 72, 24 px red
-    pub.publish_twin(face, ring)
+    pub.publish_frames(face, ring)
 
     env = sub.recv(2000)
-    assert env is not None, "no twin arrived"
-    assert env.twin.face == face, "the face did not arrive byte-for-byte"
-    assert env.twin.ring == ring, "the ring did not arrive byte-for-byte"
-    assert len(env.twin.ring) == 72
+    assert env is not None, "no frames arrived"
+    assert env.frames.face == face, "the face did not arrive byte-for-byte"
+    assert env.frames.ring == ring, "the ring did not arrive byte-for-byte"
+    assert len(env.frames.ring) == 72
     pub.close(); sub.close()
 
 

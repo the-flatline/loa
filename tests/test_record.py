@@ -8,20 +8,7 @@ brown-out leaves a body claiming a mood that ended with the power.
 import json
 import sqlite3
 
-import pytest
-
 from loa import cortex, record, topic
-
-
-@pytest.fixture
-def fresh_db(tmp_path, monkeypatch):
-    """A cortex database of our own, so the test never touches the real one."""
-    db = tmp_path / "cortex.db"
-    monkeypatch.setattr(cortex, "DB_PATH", str(db))
-    monkeypatch.setattr(cortex, "_conn", None)
-    monkeypatch.setattr(cortex.config, "load", lambda: {})
-    yield db
-    monkeypatch.setattr(cortex, "_conn", None)
 
 
 def _event(ts, kind, **detail):
@@ -70,9 +57,9 @@ def test_live_state_and_frames_are_not_recorded():
     assert record.handle(state) == "state-ignored"
 
     twin = topic._envelope()
-    twin.twin.face = b"\x00" * 1024
-    twin.twin.ring = b"\x00" * 72
-    assert record.handle(twin) == "twin-ignored", (
+    twin.frames.face = b"\x00" * 1024
+    twin.frames.ring = b"\x00" * 72
+    assert record.handle(twin) == "frames-ignored", (
         "a frame must never reach the database — records get hashes, not pixels")
 
 

@@ -174,6 +174,38 @@ def _defaults():
     }
 
 
+# -- publish hooks ---------------------------------------------------------- #
+# The state module stays free of the wire. It reports what changed; the service
+# decides what to do about it. This is what lets loa-cortex be the single
+# publisher without cortex.py knowing ZMQ exists.
+_PUBLISHERS = []
+
+
+def on_publish(callback):
+    """Register callback(kind, payload) for state changes and events.
+
+    Listeners are called OUTSIDE the write lock — they read the state back,
+    which takes the lock — and a listener that raises is swallowed: a
+    subscriber must never be able to break a state write on the body.
+    """
+    _PUBLISHERS.append(callback)
+
+    def off():
+        try:
+            _PUBLISHERS.remove(callback)
+        except ValueError:
+            pass
+    return off
+
+
+def _report(kind, payload):
+    for cb in list(_PUBLISHERS):
+        try:
+            cb(kind, payload)
+        except Exception:                                       # noqa: BLE001
+            pass
+
+
 def set_state(fields):
     """Update the state row. fields: any of ring_state/pending_event/mood/
     expression/oled_mode/oled_text/oled_dim. Autocommit per statement."""
@@ -195,6 +227,7 @@ def set_state(fields):
         _connect().execute(
             f"UPDATE state SET {sets}, updated_at = ? WHERE id = 1",
             (*values, time.time()))
+    _report("state", get_state())
 
 
 def clear_event():
@@ -208,11 +241,12 @@ def log_event(kind, detail=None, ts=None):
     a subscriber — is recorded at the time it HAPPENED rather than the time it
     landed. A record with the wrong timestamp is a lie about when something
     broke, and the timestamp is the only thing that makes a record usable."""
+    when = time.time() if ts is None else ts
     with _lock:
         _connect().execute(
             "INSERT INTO events (ts, kind, detail) VALUES (?, ?, ?)",
-            (time.time() if ts is None else ts, kind,
-             json.dumps(detail) if detail is not None else None))
+            (when, kind, json.dumps(detail) if detail is not None else None))
+    _report("event", {"ts": when, "kind": kind, "detail": detail})
 
 
 # -- baro telemetry -------------------------------------------------------

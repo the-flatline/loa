@@ -394,10 +394,64 @@ def fragment_read(x_fragment_token: str | None = Header(default=None)):
 # ---------------------------------------------------------------------------
 # entry point
 
+# -- the topic: loa-cortex is the ONE publisher ------------------------------ #
+# Keyed by endpoint: a module-level single slot meant the first endpoint bind
+# won forever, so a second start_publishing() silently published into a socket
+# nobody was listening on. Found by the tests, not by the body.
+_PUB = {}
+
+
+def start_publishing(endpoint=None):
+    """Publish state changes and events to the topic. Called once at startup.
+
+    Registered on the state module, which knows nothing about ZMQ: it reports
+    what changed, this decides what to do about it.
+
+    Publish on CHANGE — the schema decides what "changed" means, by comparing
+    the serialised message. A state that has not moved is not news, and a feed
+    of non-news is a feed nobody reads.
+
+    Never fatal: if the socket cannot be made, the body keeps running without a
+    feed. A missing publisher must not mean a mute body.
+    """
+    from . import topic as topic_mod
+
+    slot = _PUB.setdefault(endpoint or topic_mod.DEFAULT_ENDPOINT,
+                           {"sock": None, "last": None})
+
+    def hook(kind, payload):
+        if slot["sock"] is None:
+            try:
+                slot["sock"] = topic_mod.Publisher(
+                    **({"endpoint": endpoint} if endpoint else {}))
+            except Exception:                                   # noqa: BLE001
+                return
+        pub = slot["sock"]
+        try:
+            if kind == "state":
+                msg = topic_mod.state_to_message(payload)
+                raw = msg.SerializeToString()
+                if raw == slot["last"]:
+                    return
+                slot["last"] = raw
+                env = topic_mod._envelope()
+                env.state.CopyFrom(msg)
+                pub.send(env)
+            else:
+                pub.publish_event(payload.get("ts") or 0.0,
+                                  payload.get("kind") or "",
+                                  payload.get("detail") or {})
+        except Exception:                                       # noqa: BLE001
+            pass
+
+    return cortex.on_publish(hook)
+
+
 def main():
     import uvicorn
     host = os.environ.get("LOA_API_BIND", "0.0.0.0")
     port = int(os.environ.get("LOA_API_PORT", DEFAULT_PORT))
+    start_publishing(os.environ.get("LOA_TOPIC_ENDPOINT"))
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
 

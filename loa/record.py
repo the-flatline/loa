@@ -50,9 +50,9 @@ def handle(envelope) -> str:
         # and it travels as an event from the weather daemon, not as a copy of
         # the state stream.
         return "state-ignored"
-    if kind == "twin":
+    if kind == "frames":
         # Frames belong to the live feed. Records get hashes, never pixels.
-        return "twin-ignored"
+        return "frames-ignored"
     return "unknown"
 
 
