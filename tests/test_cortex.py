@@ -18,7 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from loa import api, cortex, expressions, moods, oled, presence  # noqa: E402
+from loa import cortexd, cortex, expressions, moods, oled, fault  # noqa: E402
+from loa import ring as ringd  # noqa: E402
 from loa.oled_daemon import _wash, render_loop  # noqa: E402
 
 PASS = 0
@@ -43,7 +44,7 @@ cortex.log_event("test", {"n": 1})
 check("history has event", any(e["kind"] == "test" for e in cortex.history(5)))
 
 print("== api ==")
-c = TestClient(api.app)
+c = TestClient(cortexd.app)
 r = c.get("/health")
 check("health", r.status_code == 200 and r.json()["ok"] and r.json()["version"])
 r = c.get("/state")
@@ -169,7 +170,7 @@ class FakeRing:
 ring = FakeRing()
 
 cortex.set_state({"ring_state": "busy"})
-t = threading.Thread(target=lambda: presence.busy(ring))
+t = threading.Thread(target=lambda: ringd.busy(ring))
 t.start()
 time.sleep(0.2)
 cortex.set_state({"ring_state": "home"})
@@ -177,7 +178,7 @@ t.join(timeout=3)
 check("busy loop exits on state change", not t.is_alive() and ring.shows > 0)
 
 cortex.set_state({"ring_state": "home", "pending_event": "scan"})
-t = threading.Thread(target=lambda: presence.one_scan(ring))
+t = threading.Thread(target=lambda: ringd.one_scan(ring))
 t.start()
 time.sleep(0.2)
 cortex.set_state({"ring_state": "busy"})
@@ -185,7 +186,7 @@ t.join(timeout=3)
 check("scan loop aborts on state change", not t.is_alive())
 
 cortex.set_state({"ring_state": "alarm"})
-t = threading.Thread(target=lambda: presence.alarm(ring))
+t = threading.Thread(target=lambda: ringd.alarm(ring))
 t.start()
 time.sleep(0.2)
 cortex.set_state({"ring_state": "home"})

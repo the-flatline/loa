@@ -1,0 +1,11 @@
+[Unit]
+Description=loa fault timer — sweep the body for internal faults every minute
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=60
+AccuracySec=5
+Unit=loa-fault.service
+
+[Install]
+WantedBy=timers.target

@@ -19,13 +19,13 @@ ripperdoc = ["textual>=0.60"]
 dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110", "cryptography>=42"]
 
 [project.scripts]
-loa-presence = "loa.presence:main"
-loa-sense = "loa.sense:main"
+loa-ring = "loa.ring:main"
+loa-cortex = "loa.cortexd:main"
 loa-ctl = "loa.control:serve"
-loa-api = "loa.api:main"
 loa-oled = "loa.oled_daemon:main"
 ripperdoc = "loa.ripperdoc:main"
-loa-faults = "loa.faults:main"
+loa-fault = "loa.fault:main"
+loa-sense = "loa.sense:main"
 
 [tool.setuptools]
 packages = ["loa"]

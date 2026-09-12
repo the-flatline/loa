@@ -2,8 +2,9 @@
 # Install the cortex on the Pi. Run ON the Pi as user flatline, from a
 # checkout of the-flatline/loa.
 #
-# Replaces the old flag-file stack (loa-ctl + v0.2 presence) with the
-# cortex: loa-presence + loa-oled + loa-api, all driven by cortex.db.
+# Replaces the old flag-file stack (loa-ctl + v0.2 presence) with the cortex:
+# loa-cortex at the centre, the ring/face daemons around it, and one daemon
+# per sense so a failed sensor cannot deafen the others.
 set -euo pipefail
 
 echo "== stopping the old door (loa-ctl) =="
@@ -23,9 +24,20 @@ else
 fi
 
 echo "== installing services =="
-sudo cp deploy/loa-presence.service deploy/loa-sense.service deploy/loa-oled.service deploy/loa-api.service /etc/systemd/system/
+sudo cp deploy/loa-ring.service deploy/loa-oled.service deploy/loa-cortex.service \
+        deploy/loa-motion.service deploy/loa-sonar.service deploy/loa-weather.service \
+        deploy/loa-fault.service deploy/loa-fault.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now loa-presence loa-sense loa-oled loa-api
+sudo systemctl enable --now loa-ring loa-oled loa-cortex \
+                            loa-motion loa-sonar loa-weather loa-fault.timer
+
+echo "== retiring units that no longer exist =="
+for dead in loa-presence loa-sense loa-api loa-faults; do
+  sudo systemctl disable --now "$dead" 2>/dev/null || true
+  sudo rm -f "/etc/systemd/system/$dead.service"
+done
+sudo rm -f /etc/systemd/system/loa-faults.timer
+sudo systemctl daemon-reload
 
 echo "== done. sanity check: =="
 curl -sf http://127.0.0.1:8765/health && echo

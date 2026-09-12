@@ -1,10 +1,10 @@
 [Unit]
-Description=loa faults — the body's own pain sense (one sweep, writes /dev/shm/loa-faults.json)
+Description=loa fault — the body's own pain sense (one sweep, writes /dev/shm/loa-faults.json)
 After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/home/flatline/venv/bin/loa-faults --quiet
+ExecStart=/home/flatline/venv/bin/loa-fault --quiet
 User=flatline
 # exit 1 means it hurts — that is a successful sweep, not a failed unit
 SuccessExitStatus=0 1

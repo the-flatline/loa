@@ -1,128 +1,212 @@
-"""Ring — hardware layer. WS2812B over SPI0, Raspberry Pi 5 safe.
+"""presence — the ring daemon (loa-presence). Owns the WS2812B over SPI1.
 
-Why SPI and not rpi_ws281x: the PyPI rpi_ws281x 5.0.0 wheel ships no compiled
-binary for the RP1 chipset ("Hardware revision is not supported"), and the
-Adafruit path needs Blinka. SPI is the Pi-5-safe, dependency-light route:
-GPIO10 (MOSI) at 3.2MHz, four SPI bits per WS2812 bit.
+Theme PHOSPHOR, cortex-driven. Polls the cortex state row every frame and
+renders:
+
+  ring_state home   : green breath, cyan drift
+  ring_state busy   : amber breath — working
+  ring_state alarm  : full red triple pulse — the yell
+  pending_event scan   : one comet lap — attention, on demand
+  pending_event glitch : one RGB-split stutter — corruption, on demand
+
+Priority: alarm > hurts > mute > busy > event > home. Events fire once and are
+cleared.
+
+The ring is the body's INVOLUNTARY tell — the ears and the tail. It carries
+how I am without words, and it keeps working when the face cannot: a dead
+face is a black rectangle and that black rectangle is the signal, so the ring
+has to be the one that says so.
+
+Condition (from the fault sweep) outranks the cosmetic moods. Being busy is
+decoration; hurting is information. Only an explicit alarm outranks it.
+
+  well   : the green breath, unchanged
+  niggle : one amber tick folded into the breath, rare enough to mean something
+  hurts  : the breath STOPS and it holds a deep red pulse
+  mute   : the sweep itself is dead — dark, one dim blink every 10s, alive but
+           unable to speak. Silence must never look like calm.
+
+Rendering: 60fps clock-paced. A fresh DitheredFrame per state so no error
+carryover flashes on transition.
 """
-ONE  = bytes([0b1110])   # WS2812 "1"  ~937ns high, 1.25us total
-ZERO = bytes([0b1000])   # WS2812 "0"  ~937ns low,  1.25us total
+import time
+
+from .ws2812 import Ring
+from .render import DitheredFrame
+from . import animations as anim
+from . import cortex
+from . import fault
+
+FPS = 60
+FRAME_PERIOD = 1.0 / FPS
+NIGGLE_PERIOD_S = 20.0
+
+_COND: dict = {"ts": 0.0, "val": "well"}
 
 
-def _ws_byte(v: int) -> bytes:
-    out = bytearray()
-    for bit in (7, 6, 5, 4, 3, 2, 1, 0):
-        out += ONE if (v >> bit) & 1 else ZERO
-    return bytes(out)
+def _condition(ttl=1.0) -> str:
+    """The body's own report, polled at most once a second — this is called
+    every frame. A broken sweep must read as mute, never as well."""
+    now = time.time()
+    if now - _COND["ts"] < ttl:
+        return _COND["val"]
+    try:
+        val = fault.condition()
+    except Exception:                                       # noqa: BLE001
+        val = "mute"
+    _COND["ts"], _COND["val"] = now, val
+    return val
 
 
-def parse_color(value):
-    """Normalize a color to an (r,g,b) tuple.
+def _solid(h: float, s: float, v: float):
+    """One colour across the whole ring."""
+    return [anim.hsv(h, s, v)] * anim.LED_COUNT
 
-    Accepts:
-      "#00FF00" / "#0F0"      hex string
-      "0x00FF00"              hex string with prefix
-      0x00FF00                int
-      (0, 255, 0)             tuple or list of three ints
 
-    Raises ValueError on anything else.
+def hurting(ring):
+    """HURTS: the breath stops and it holds a deep red pulse.
+
+    Deliberately NOT the alarm triple-flash — alarm says 'look at me NOW',
+    this says 'something is wrong inside me'. The tell is the stopped rhythm:
+    a body in pain doesn't keep breathing evenly.
     """
-    if isinstance(value, str):
-        s = value.strip()
-        if s.startswith("#"):
-            s = s[1:]
-        elif s.startswith("0x"):
-            s = s[2:]
-        if len(s) == 3:
-            s = "".join(c * 2 for c in s)
-        if len(s) != 6:
-            raise ValueError(f"bad hex color: {value!r}")
-        return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
-    if isinstance(value, (tuple, list)):
-        if len(value) != 3:
-            raise ValueError(f"color must be (r,g,b): {value!r}")
-        return (int(value[0]), int(value[1]), int(value[2]))
-    if isinstance(value, int):
-        return ((value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF)
-    raise ValueError(f"unsupported color: {value!r}")
+    while _condition() == "hurts":
+        for v in (0.85, 0.85, 0.85, 0.18, 0.18, 0.18, 0.18):
+            if _condition() != "hurts":
+                return
+            ring.show(_solid(0.0, 1.0, v))
+            time.sleep(0.28)
 
 
-def grb(r: int, g: int, b: int) -> bytes:
-    """Encode one pixel in WS2812 order (green, red, blue)."""
-    return _ws_byte(g) + _ws_byte(r) + _ws_byte(b)
+def muted(ring):
+    """MUTE: the sweep itself is dead — dark, one dim blink every 10s.
 
-
-class Ring:
-    """A WS2812B ring on SPI0.
-
-    Args:
-        num: number of LEDs (loa's ring is 24).
-        bus, device: SPI bus/device (default 0,0 = /dev/spidev0.0).
-        speed: SPI clock in Hz. 3.2MHz gives four SPI bits per WS2812 bit.
+    Alive but can't speak. The blink is the whole point: without it, a deaf
+    body and an unplugged cable look identical.
     """
+    while _condition() == "mute":
+        ring.show(_solid(0.0, 0.0, 0.0))
+        time.sleep(9.6)
+        if _condition() != "mute":
+            return
+        ring.show(_solid(0.0, 0.0, 0.06))
+        time.sleep(0.4)
 
-    def __init__(self, num: int = 24, bus: int | None = None,
-                 device: int | None = None, speed: int = 3_200_000):
-        import spidev              # lazy: animations stay importable anywhere
-        from . import config
-        cfg = config.load()        # loa.conf is the as-built truth
-        self.num = num
-        self.spi = spidev.SpiDev()
-        self.spi.open(
-            int(cfg.get("ring_bus", bus if bus is not None else 0)),
-            int(cfg.get("ring_device", device if device is not None else 0)),
-        )
-        self.spi.max_speed_hz = int(cfg.get("ring_speed", speed))
-        self.spi.mode = 0b00
 
-    def show(self, frame) -> None:
-        """Render one frame: an iterable of colors, len == self.num.
+def _pace(ring, frame):
+    ring.show(frame)
+    time.sleep(FRAME_PERIOD)
 
-        Each color may be a tuple (r,g,b) or a hex string like "#00FF00".
-        """
-        buf = bytearray()
-        for color in frame:
-            r, g, b = parse_color(color)
-            buf += grb(int(r), int(g), int(b))
-        buf += b'\x00' * 24            # latch: 60us low
-        self.spi.writebytes2(list(buf))
-        self._publish(frame)
 
-    def _publish(self, frame) -> None:
-        """Publish the exact display values to /dev/shm/loa-ring.bin (72B).
+def _home_frames():
+    """Generator: breath cycle with live hue drift, design-code frames."""
+    breath = anim.breath_frames(peak=anim.HOME_PEAK, fps=FPS)
+    idx = 0
+    while True:
+        hue = anim.home_hue(time.time())
+        yield [anim.hsv(hue, 1.0, max(p) / 255) for p in breath[idx]]
+        idx = (idx + 1) % len(breath)
 
-        The retained topic of the loa frame bus — RAM-backed (tmpfs), zero
-        flash writes. presence publishes, the bench TUI (and any future
-        subscriber) reads the last value. Ephemeral by nature: it republishes
-        the moment the daemon runs. Config/cortex.db stay on disk; a live
-        mirror does not.
 
-        Opens fresh every frame like the OLED topic: a deleted or cleaned
-        file is recreated on the next publish instead of writing to a stale
-        fd that no longer exists in the directory.
-        """
-        try:
-            raw = bytearray()
-            for color in frame:
-                r, g, b = parse_color(color)
-                raw += bytes((int(r), int(g), int(b)))
-            with open("/dev/shm/loa-ring.bin", "wb") as f:
-                f.write(raw)
-        except Exception:
-            pass
+def home(ring):
+    dither = DitheredFrame(anim.LED_COUNT)
+    next_tick = time.time() + NIGGLE_PERIOD_S
+    for frame in _home_frames():
+        st = cortex.get_state()
+        if st["ring_state"] != "home" or st["pending_event"]:
+            return
+        # a niggle rides the breath rather than replacing it — one amber tick,
+        # rare enough to be information instead of noise
+        if _condition() == "niggle" and time.time() >= next_tick:
+            next_tick = time.time() + NIGGLE_PERIOD_S
+            for v in (0.55, 0.10):
+                if _condition() != "niggle":
+                    break
+                dither.render(ring, _solid(38.0, 1.0, v))
+                time.sleep(0.18)
+            continue
+        dither.render(ring, frame)
+        time.sleep(FRAME_PERIOD)
 
-    def fill(self, rgb) -> None:
-        """Set every LED to one color — tuple, hex string, or int."""
-        self.show([rgb] * self.num)
 
-    def off(self) -> None:
-        self.fill((0, 0, 0))
+def busy(ring):
+    dither = DitheredFrame(anim.LED_COUNT)
+    frames = anim.busy_frames(fps=FPS)
+    while cortex.get_state()["ring_state"] == "busy":
+        for frame in frames:
+            st = cortex.get_state()
+            if st["ring_state"] != "busy":
+                return
+            dither.render(ring, frame)
+            time.sleep(FRAME_PERIOD)
 
-    def close(self) -> None:
-        self.spi.close()
 
-    def __enter__(self):
-        return self
+def alarm(ring):
+    while cortex.get_state()["ring_state"] == "alarm":
+        for frame in anim.alarm_frames():
+            if cortex.get_state()["ring_state"] != "alarm":
+                return
+            ring.show(frame)
+            time.sleep(0.4 if frame[0][0] > 0 else 0.3)
+        time.sleep(2.0)
 
-    def __exit__(self, *exc):
-        self.close()
+
+def one_scan(ring):
+    dither = DitheredFrame(anim.LED_COUNT)
+    # ripperdoc bench mode: snappier lap so the reaction reads instantly
+    st = cortex.get_state()
+    lap, fade = (0.9, 0.3) if st.get("ripperdoc") else (1.6, 0.5)
+    for frame in anim.scan_frames(lap_s=lap, fade_s=fade, fps=FPS):
+        st = cortex.get_state()
+        if st["ring_state"] != "home":
+            return
+        dither.render(ring, frame)
+        time.sleep(FRAME_PERIOD)
+
+
+def one_glitch(ring):
+    dither = DitheredFrame(anim.LED_COUNT)
+    for frame in anim.glitch_frames(fps=FPS):
+        st = cortex.get_state()
+        if st["ring_state"] != "home":
+            return
+        dither.render(ring, frame)
+        time.sleep(FRAME_PERIOD)
+
+
+def main(ring=None):
+    ring = ring or Ring(num=anim.LED_COUNT)
+    cortex.log_event("boot", {"svc": "presence"})
+    try:
+        while True:
+            st = cortex.get_state()
+            cond = _condition()
+            if st["ring_state"] == "alarm":
+                alarm(ring)
+                continue
+            # the body's condition outranks the cosmetic moods: busy is
+            # decoration, hurting is information
+            if cond == "hurts":
+                hurting(ring)
+                continue
+            if cond == "mute":
+                muted(ring)
+                continue
+            if st["ring_state"] == "busy":
+                busy(ring)
+                continue
+            if st["pending_event"] == "scan":
+                one_scan(ring)
+                cortex.clear_event()
+                continue
+            if st["pending_event"] == "glitch":
+                one_glitch(ring)
+                cortex.clear_event()
+                continue
+            home(ring)
+    finally:
+        ring.close()
+
+
+if __name__ == "__main__":
+    main()

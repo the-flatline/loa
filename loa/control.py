@@ -1,7 +1,7 @@
 """control — DEPRECATED as of v0.3.0.
 
 The old stdlib HTTP door (flag-file based) that the cortex replaced. The
-cortex (api.py + cortex.py + SQLite) supersedes it: same port, richer
+cortex (cortexd.py + cortex.py + SQLite) supersedes it: same port, richer
 state, history, and no stuck flags. Kept for backward compat with running
 loa-ctl.service installs; remove after the cortex deploy lands.
 """

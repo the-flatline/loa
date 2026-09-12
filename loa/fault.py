@@ -27,16 +27,18 @@ FAULTS_PATH = "/dev/shm/loa-faults.json"
 
 # Units the body expects to exist and be running. loa-presence is the ring
 # (its unit has been missing from /etc/systemd/system before now).
-UNITS = ("loa-api", "loa-oled", "loa-sense", "loa-presence")
+UNITS = ("loa-cortex", "loa-oled", "loa-motion", "loa-sonar", "loa-weather",
+         "loa-ring")
 
 # Console scripts an unclean shutdown has zeroed before (empty file =>
 # Exec format error => crash-loop that looks like a dead device).
 SCRIPTS_DIR = "/home/flatline/venv/bin"
-SCRIPTS = ("loa-api", "loa-oled", "loa-presence", "loa-sense", "ripperdoc")
+SCRIPTS = ("loa-cortex", "loa-oled", "loa-ring", "loa-motion", "loa-sonar",
+           "loa-weather", "ripperdoc")
 
 # Who should hold which SPI bus. Two writers on one bus is the classic
 # ghost-in-the-panel fault.
-BUS_OWNERS = {"/dev/spidev0.0": "loa-oled", "/dev/spidev1.0": "loa-presence"}
+BUS_OWNERS = {"/dev/spidev0.0": "loa-oled", "/dev/spidev1.0": "loa-ring"}
 BUS_LABEL = {"/dev/spidev0.0": "FACE", "/dev/spidev1.0": "RING"}
 
 DISK_WARN_PCT = 85
@@ -95,14 +97,14 @@ def _check_units(rows):
                         f"failing. Check its log before believing anything "
                         f"downstream is broken.",
             })
-        elif state == "inactive" and unit == "loa-presence":
-            exists = os.path.exists("/etc/systemd/system/loa-presence.service")
+        elif state == "inactive" and unit == "loa-ring":
+            exists = os.path.exists("/etc/systemd/system/loa-ring.service")
             # "OFF" would overclaim: this daemon is what DRIVES the ring, and
             # losing it says nothing about the hardware. Say the honest thing.
             rows.append({
                 "level": "warn",
                 "code": "RING STOPPED",
-                "text": ("loa-presence not running — unit file "
+                "text": ("loa-ring not running — unit file "
                          + ("present but stopped" if exists
                             else "MISSING from /etc/systemd/system")),
             })

@@ -16,7 +16,7 @@ import random
 import time
 
 from . import cortex
-from . import faults
+from . import fault
 from . import oled
 
 FPS = 30
@@ -39,7 +39,7 @@ _BODY: dict = {"ts": 0.0, "val": "well"}
 def _ring_is_dark() -> bool:
     """True when nothing is driving the ring bus — the sweep names this
     RING DARK."""
-    rep = faults.status()
+    rep = fault.status()
     return any(r.get("code") == "RING DARK" for r in (rep.get("rows") or []))
 
 
@@ -50,7 +50,7 @@ def _body_condition(ttl=2.0) -> str:
     if now - _BODY["ts"] < ttl:
         return _BODY["val"]
     try:
-        val = faults.condition()
+        val = fault.condition()
     except Exception:                                       # noqa: BLE001
         val = "mute"
     _BODY["ts"], _BODY["val"] = now, val

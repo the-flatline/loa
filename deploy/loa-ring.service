@@ -1,0 +1,13 @@
+[Unit]
+Description=loa ring daemon — WS2812 ring voice (SPI1)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/flatline/venv/bin/loa-ring
+Restart=always
+RestartSec=3
+User=flatline
+
+[Install]
+WantedBy=multi-user.target

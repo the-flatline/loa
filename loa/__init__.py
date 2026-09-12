@@ -9,20 +9,20 @@ Daemons (presence: ring; oled_daemon: face).
 
 __version__ = "0.9.0"
 
-from .ring import Ring
+from .ws2812 import Ring
 from . import animations
 from . import cortex
 from . import control
-from . import presence
+from . import ring
 from . import sense
 from . import oled
 from . import oled_daemon
 from . import amiga
 from . import moods
 from . import expressions
-from . import api
+from . import cortexd
 
 __all__ = [
-    "Ring", "animations", "cortex", "control", "presence", "sense", "oled",
+    "Ring", "animations", "cortex", "control", "ring", "sense", "oled",
     "oled_daemon", "amiga", "moods", "expressions", "api",
 ]

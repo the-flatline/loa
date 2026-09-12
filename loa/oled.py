@@ -23,7 +23,7 @@ from . import amiga
 
 from . import cortex
 
-from . import faults
+from . import fault
 
 from . import topaz
 
@@ -89,7 +89,7 @@ def faults_state(st=None):
 def _faults_status() -> dict:
     """The last published sweep. Delegates to faults so the published file has
     exactly one reader and one staleness constant."""
-    return faults.status()
+    return fault.status()
 
 
 # ---------------------------------------------------------------------------
@@ -811,7 +811,7 @@ class Ripperdoc:
             return
         age = t - (f.get("ts") or t)
         n_fault, n_warn = f.get("faults") or 0, f.get("warns") or 0
-        if age > faults.FAULTS_STALE_S:
+        if age > fault.FAULTS_STALE_S:
             heads = f"SENSE DEAD {int(age / 60)}M"
         elif n_fault:
             heads = f"{n_fault} HURTS"
