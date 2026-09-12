@@ -639,11 +639,11 @@ class Ripperdoc:
         if temp is None:
             amiga.draw(frame, "--.-C", 2, 52, size=8)
             amiga.draw(frame, "--%", WIDTH - amiga.width("--%", 8), 52, size=8)
-            self._gauge(frame, 2, 14, 0.0)
+            self._gauge(frame, 2, 18, 0.0)
             return
         lo, hi = 5.0, 40.0
         frac = max(0.0, min(1.0, (temp - lo) / (hi - lo)))
-        self._gauge(frame, 2, 14, frac)
+        self._gauge(frame, 2, 18, frac)
         amiga.draw(frame, f"{temp:4.1f}C", 2, 52, size=8)
         if hum is not None:
             s = f"{hum:.0f}%"
