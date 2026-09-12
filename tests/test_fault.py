@@ -106,7 +106,7 @@ def test_a_ghost_reading_is_not_a_reading(monkeypatch):
     import loa.fault as f
 
     now = _t.time()
-    monkeypatch.setattr(cortex, "get_state", lambda: {
+    monkeypatch.setattr(f, "_feed_state", lambda *a, **k: {
         "temp_c": 23.8, "temp_ts": now - 6002,          # 100 minutes old
         "pressure_hpa": None, "baro_ts": None,
     })
@@ -117,7 +117,7 @@ def test_a_ghost_reading_is_not_a_reading(monkeypatch):
     assert len(rows[0]["face"]) <= 14, "must fit the face"
 
     # fresh reading: silent
-    monkeypatch.setattr(cortex, "get_state", lambda: {
+    monkeypatch.setattr(f, "_feed_state", lambda *a, **k: {
         "temp_c": 23.8, "temp_ts": now - 5,
         "pressure_hpa": None, "baro_ts": None,
     })
@@ -126,7 +126,7 @@ def test_a_ghost_reading_is_not_a_reading(monkeypatch):
     assert rows == []
 
     # absent sensor: not this check's business (the face shows absence)
-    monkeypatch.setattr(cortex, "get_state", lambda: {
+    monkeypatch.setattr(f, "_feed_state", lambda *a, **k: {
         "temp_c": None, "temp_ts": None,
         "pressure_hpa": None, "baro_ts": None,
     })

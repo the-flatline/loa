@@ -52,3 +52,40 @@ def test_the_face_says_what_the_pin_says():
     src = inspect.getsource(motion)
     assert "pir_high" in src, "motion must publish the pin level"
     assert "set_input" in src, "motion must own the pin's input mode"
+
+
+def test_no_daemon_touches_the_cortex():
+    """A daemon PUBLISHES. It never reads another service's state and never
+    writes the store — that is the cross-service coupling this design removes.
+
+    Not hypothetical: the 2026-09-13 deploy found motion, sonar and weather all
+    still calling cortex.set_state()/log_event(). They had been rewritten in
+    spirit and not in code, so the readings never reached the feed, and the new
+    use_topic signature crashed all three on boot. The lesson is in the file
+    above: a test written against the old assumption passes happily.
+    """
+    import ast
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent / "loa"
+    for name in ("motion", "sonar", "weather", "oled", "ring", "fault"):
+        src = (root / f"{name}.py").read_text()
+        # Parse rather than grep: a mention of the cortex in a comment or a
+        # docstring is explanation, not a call. Only real attribute access on
+        # the name `cortex` counts.
+        bad = sorted({n.attr for n in ast.walk(ast.parse(src))
+                      if isinstance(n, ast.Attribute)
+                      and isinstance(n.value, ast.Name)
+                      and n.value.id == "cortex"})
+        assert not bad, f"{name}.py still calls cortex.{bad} — it must publish"
+
+
+def test_every_sense_daemon_claims_its_topic():
+    """use_topic() takes the topic name. Calling it bare is a TypeError at boot."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent / "loa"
+    for name, topic in (("motion", "pir"), ("sonar", "sonar"),
+                        ("weather", "weather")):
+        src = (root / f"{name}.py").read_text()
+        assert f'use_topic("{topic}")' in src, f"{name} does not claim {topic}"

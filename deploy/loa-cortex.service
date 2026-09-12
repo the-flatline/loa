@@ -1,12 +1,17 @@
 [Unit]
-Description=loa cortex — the body's state service (HTTP door + twin feed)
-After=network.target loa-ring.service loa-oled.service
+Description=loa cortex — the body's state and the ONE publisher of the topics
+After=network.target loa-ring.service loa-oled.service loa-store-tunnel.service
 
 [Service]
 Type=simple
 ExecStart=/home/flatline/venv/bin/loa-cortex
-# Bind all interfaces; ice's firewall is the gate (dixie -> loa:8765 only)
+# Bind all interfaces; ice's firewall is the gate (dixie -> loa:8765 and :5556)
 Environment=LOA_API_BIND=0.0.0.0
+# The store's DSN (postgres on aleph, through the tunnel). The leading dash
+# makes it OPTIONAL on purpose: with no store the cortex still runs and still
+# publishes, and the body says DB DOWN on the glass rather than refusing to
+# start. A missing store must never mean a mute body.
+EnvironmentFile=-/home/flatline/.loa/store.env
 Restart=always
 RestartSec=3
 User=flatline

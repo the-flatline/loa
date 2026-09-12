@@ -13,9 +13,9 @@ import threading
 import time
 
 from . import config
-from . import cortex
 from .sense import (BMP180, DEFAULT_BARO_ADDR, DEFAULT_BARO_PERIOD,
-                    DEFAULT_TEMP_GPIO, DEFAULT_TEMP_PERIOD, DHT11, use_topic)
+                    DEFAULT_TEMP_GPIO, DEFAULT_TEMP_PERIOD, DHT11,
+                    publish_event, use_topic)
 
 
 def main():
@@ -26,9 +26,9 @@ def main():
     baro_period = float(cfg.get("sense_baro_period", DEFAULT_BARO_PERIOD))
     baro_enabled = str(cfg.get("sense_baro_enabled", "true")).lower() \
         not in ("0", "false", "no", "off")
-    use_topic()
+    use_topic("weather")
 
-    cortex.log_event("boot", {"svc": "weather", "temp_gpio": temp_gpio,
+    publish_event("boot", {"svc": "weather", "temp_gpio": temp_gpio,
                               "temp_period": temp_period,
                               "baro_enabled": baro_enabled,
                               "baro_addr": baro_addr,

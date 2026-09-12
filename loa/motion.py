@@ -12,9 +12,8 @@ One process per sense means a dead weather board cannot blind the eye.
 import time
 
 from . import config
-from . import cortex
-from .sense import (DEFAULT_COOLDOWN, DEFAULT_GPIO, SensePoller, pinctrl_reader,
-                    set_input, use_topic)
+from .sense import (DEFAULT_COOLDOWN, DEFAULT_GPIO, SensePoller, publish,
+                    publish_event, pinctrl_reader, set_input, use_topic)
 
 
 def main():
@@ -24,19 +23,19 @@ def main():
     # readings go OUT on the topic, not into the database: five processes
     # writing one sqlite file is a race, and the cortex cannot publish what it
     # never sees.
-    use_topic()
+    use_topic("pir")
 
     # the N counter is per-boot: a rebooted body starts at zero
-    cortex.set_state({"sense_count": 0})
-    cortex.log_event("boot", {"svc": "motion", "gpio": gpio,
-                              "cooldown": cooldown})
+    publish({"pir_count": 0})
+    publish_event("boot", {"svc": "motion", "gpio": gpio,
+                           "cooldown": cooldown})
     set_input(gpio)
     # sync the light with the pin at boot — a stuck/stale state must not
     # survive a reboot (jumper fiddling can leave the module latched high)
     level = pinctrl_reader(gpio)
     if level is not None:
-        cortex.set_state({"pir_high": int(level),
-                          "pir_on_ts": time.time() if level else None})
+        publish({"pir_high": int(level),
+                 "pir_on_ts": time.time() if level else None})
     SensePoller(gpio=gpio, cooldown=cooldown).run()
 
 

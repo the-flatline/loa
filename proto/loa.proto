@@ -135,6 +135,7 @@ message Fault {
     string level = 1;      // fault | warn
     string code = 2;       // e.g. "OLED LOOP", "DB DOWN"
     string text = 3;       // the human sentence
+    optional string face = 4;  // the SHORT word the glass has room for
   }
   repeated Row rows = 1;   // worst first
   optional string condition = 2;  // well | niggle | hurts

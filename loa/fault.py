@@ -215,8 +215,7 @@ def _check_sensors(rows):
     for three hours" is a quiet room, not a fault.
     """
     try:
-        from . import cortex
-        st = cortex.get_state()
+        st = _feed_state()
     except Exception:                                       # noqa: BLE001
         return
     now = time.time()
@@ -298,8 +297,39 @@ def _boot_id():
         return None
 
 
+def _feed_state(wait=1.5):
+    """The readings, off the FEED — never out of the cortex.
+
+    This used to call cortex.get_state(), which is a daemon reaching into
+    another service's memory. It works on the bench and lies on the body: what
+    this process could see of the cortex is whatever its own import happened to
+    hold. The sweep subscribes like every other consumer and reads what lands.
+    """
+    from . import topic as topic_mod
+    m = topic_mod.Mirror(topics=list(topic_mod.TOPICS))
+    try:
+        time.sleep(wait)        # the tick is 2Hz; give it a few
+        return m.state()
+    finally:
+        m.close()
+
+
+def _condition_for(report):
+    levels = {r.get("level") for r in (report.get("rows") or [])}
+    if "fault" in levels:
+        return "hurts"
+    if "warn" in levels:
+        return "niggle"
+    return "well"
+
+
 def publish(report=None):
-    """Write the sweep to RAM. Best-effort — a publish failure is not a fault."""
+    """Sweep, cache it in RAM, and send it UP on the fault topic.
+
+    The file stays as a local cache — the CLI prints it and it dies with the
+    machine. It is no longer how the cortex learns what hurts: that is the
+    topic, like every other reading.
+    """
     report = report or sweep()
     tmp = FAULTS_PATH + ".tmp"
     try:
@@ -308,6 +338,18 @@ def publish(report=None):
         os.replace(tmp, FAULTS_PATH)
     except OSError:
         pass
+    try:
+        from . import topic as topic_mod
+        from .pb import loa_pb2 as pb
+        msg = pb.Fault(condition=_condition_for(report), ts=report["ts"])
+        for r in report.get("rows") or []:
+            msg.rows.add(level=str(r.get("level") or ""),
+                         code=str(r.get("code") or ""),
+                         text=str(r.get("text") or ""),
+                         face=str(r.get("face") or ""))
+        topic_mod.Sender().send("fault", msg)
+    except Exception:                                       # noqa: BLE001
+        pass                  # a publish failure is not itself a fault
     return report
 
 
