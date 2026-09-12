@@ -752,8 +752,8 @@ class Ripperdoc:
 
         Labels: 5V = the input (volts only — the PMIC has no EXT5V_A),
         3V3 = the rail, <label>I = that rail's current draw. Five lines at
-        8px pitch: glyphs are 7 rows tall, so 8 leaves a 1px gutter and the
-        whole set clears 64px with the flags intact.
+        8px pitch: the cell is 8 rows and digits/capitals use 7 of them, so
+        8px pitch gives a 1px gutter and the last row lands at 62 of 64.
         """
         amiga.draw(frame, "PWR", 2, 1, size=8)
         amiga.draw(frame, "6/6", 99, 1, size=8)
