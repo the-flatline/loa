@@ -566,7 +566,7 @@ class Ripperdoc:
     """
 
     TITLE = "RIPPERDOC"
-    PAGES = ("sensors", "pir", "snr", "frag")
+    PAGES = ("sensors", "pir", "snr", "temp", "frag")
 
     def draw_state(self, frame, t, st):
         page = st.get("ripperdoc_page", "sensors")
@@ -574,6 +574,8 @@ class Ripperdoc:
             self._page_pir(frame, t, st)
         elif page == "snr":
             self._page_snr(frame, t, st)
+        elif page == "temp":
+            self._page_temp(frame, t, st)
         elif page == "frag":
             self._page_frag(frame, t, st)
         else:
@@ -581,10 +583,10 @@ class Ripperdoc:
 
     def _page_sensors(self, frame, t, st):
         amiga.draw(frame, self.TITLE, 2, 1, size=8)
-        amiga.draw(frame, "1/3", 99, 1, size=8)
+        amiga.draw(frame, "1/5", 99, 1, size=8)
         self._indicator(frame, 2, 12, "PIR", bool(st.get("pir_high")))
         self._indicator(frame, 39, 12, "SNR", st.get("snr_cm") is not None)
-        self._indicator(frame, 85, 12, "TMP", False)
+        self._indicator(frame, 85, 12, "TMP", st.get("temp_c") is not None)
         self._indicator(frame, 2, 26, "BAR", False)
         self._indicator(frame, 39, 26, "SEAL", bool(_fragment_status().get("sealed")))
         count = st.get("sense_count") or 0
@@ -598,7 +600,7 @@ class Ripperdoc:
 
     def _page_pir(self, frame, t, st):
         amiga.draw(frame, "PIR", 2, 1, size=8)
-        amiga.draw(frame, "2/3", 99, 1, size=8)
+        amiga.draw(frame, "2/5", 99, 1, size=8)
         self._indicator(frame, 2, 12, "PIR", bool(st.get("pir_high")))
         count = st.get("sense_count") or 0
         last = st.get("sense_ts")
@@ -615,7 +617,7 @@ class Ripperdoc:
 
     def _page_snr(self, frame, t, st):
         amiga.draw(frame, "SNR", 2, 1, size=8)
-        amiga.draw(frame, "3/3", 99, 1, size=8)
+        amiga.draw(frame, "3/5", 99, 1, size=8)
         snr_cm = st.get("snr_cm")
         if snr_cm is not None:
             amiga.draw(frame, f"{snr_cm:4.0f}CM", 2, 12, size=8)
@@ -629,9 +631,53 @@ class Ripperdoc:
         amiga.draw(frame, f"L{lt}", 2, 37, size=8)
         amiga.draw(frame, "G22", 2, 46, size=8)
 
+    def _page_temp(self, frame, t, st):
+        amiga.draw(frame, "TMP", 2, 1, size=8)
+        amiga.draw(frame, "4/5", 99, 1, size=8)
+        temp = st.get("temp_c")
+        hum = st.get("hum_pct")
+        if temp is None:
+            amiga.draw(frame, "--.-C", 2, 34, size=8)
+            self._gauge(frame, 2, 14, 0.0)
+            return
+        lo, hi = 10.0, 40.0
+        frac = max(0.0, min(1.0, (temp - lo) / (hi - lo)))
+        self._gauge(frame, 2, 14, frac)
+        amiga.draw(frame, f"{temp:4.1f}C", 2, 34, size=8)
+        if hum is not None:
+            amiga.draw(frame, f"{hum:3.0f}%RH", 52, 34, size=8)
+        amiga.draw(frame, f"{lo:.0f}C", 2, 48, size=8)
+        amiga.draw(frame, f"{hi:.0f}C", 98, 48, size=8)
+
+    def _gauge(self, frame, x, y, frac):
+        """Horizontal bulb thermometer: filled bulb at (x,y), stem right.
+
+        No vertical room on a 64px face, so the mercury runs left-to-right:
+        the bulb sits at the left, the stem is the tube, the fill grows from
+        the bulb toward the range end. frac 0..1 across the stem.
+        """
+        bw, bh = 8, 14
+        # bulb — filled block, rounded top corners
+        for yy in range(y + 1, y + bh):
+            for xx in range(x + 1, x + bw - 1):
+                if yy == y + 1 and (xx == x + 1 or xx == x + bw - 2):
+                    continue
+                frame.px(xx, yy)
+        # stem tube
+        sx, sy, sw, sh = x + bw - 1, y + 3, 98, 8
+        frame.line(sx, sy, sx + sw, sy)          # top
+        frame.line(sx, sy + sh, sx + sw, sy + sh)  # bottom
+        frame.line(sx, sy, sx, sy + sh)          # left (meets the bulb)
+        frame.line(sx + sw, sy, sx + sw, sy + sh)  # right cap
+        fill = int(frac * (sw - 2))
+        if fill > 0:
+            for yy in range(sy + 1, sy + sh):
+                for xx in range(sx + 1, sx + 1 + fill):
+                    frame.px(xx, yy)
+
     def _page_frag(self, frame, t, st):
         amiga.draw(frame, "FRAG", 2, 1, size=8)
-        amiga.draw(frame, "4/4", 99, 1, size=8)
+        amiga.draw(frame, "5/5", 99, 1, size=8)
         frag = _fragment_status()
         sealed = bool(frag.get("sealed"))
         self._lock(frame, 8, 16)
