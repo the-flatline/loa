@@ -587,7 +587,7 @@ class Ripperdoc:
         self._indicator(frame, 2, 12, "PIR", bool(st.get("pir_high")))
         self._indicator(frame, 39, 12, "SNR", st.get("snr_cm") is not None)
         self._indicator(frame, 85, 12, "TMP", st.get("temp_c") is not None)
-        self._indicator(frame, 2, 26, "BAR", False)
+        self._indicator(frame, 2, 26, "BAR", st.get("pressure_hpa") is not None)
         self._indicator(frame, 39, 26, "SEAL", bool(_fragment_status().get("sealed")))
         count = st.get("sense_count") or 0
         amiga.draw(frame, f"N{count:03d}", 2, 40, size=8)
@@ -636,18 +636,22 @@ class Ripperdoc:
         amiga.draw(frame, "4/5", 99, 1, size=8)
         temp = st.get("temp_c")
         hum = st.get("hum_pct")
+        pressure = st.get("pressure_hpa")
         if temp is None:
             amiga.draw(frame, "--.-C", 2, 52, size=8)
             amiga.draw(frame, "--%", WIDTH - amiga.width("--%", 8), 52, size=8)
             self._gauge(frame, 2, 18, 0.0)
-            return
-        lo, hi = 5.0, 40.0
-        frac = max(0.0, min(1.0, (temp - lo) / (hi - lo)))
-        self._gauge(frame, 2, 18, frac)
-        amiga.draw(frame, f"{temp:4.1f}C", 2, 52, size=8)
-        if hum is not None:
-            s = f"{hum:.0f}%"
-            amiga.draw(frame, s, WIDTH - amiga.width(s, 8), 52, size=8)
+        else:
+            lo, hi = 5.0, 40.0
+            frac = max(0.0, min(1.0, (temp - lo) / (hi - lo)))
+            self._gauge(frame, 2, 18, frac)
+            amiga.draw(frame, f"{temp:4.1f}C", 2, 52, size=8)
+            if hum is not None:
+                s = f"{hum:.0f}%"
+                amiga.draw(frame, s, WIDTH - amiga.width(s, 8), 52, size=8)
+        if pressure is not None:
+            s = f"{pressure:.0f}HPA"
+            amiga.draw(frame, s, WIDTH - amiga.width(s, 8), 43, size=8)
 
     def _gauge(self, frame, x, y, frac):
         """Horizontal bulb thermometer — the reference icon: solid filled

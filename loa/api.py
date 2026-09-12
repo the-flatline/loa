@@ -114,14 +114,18 @@ def _system_state():
 def _sensors_state():
     st = cortex.get_state()
     temp = st.get("temp_c")
-    if temp is None:
-        return {"available": False, "note": "temp not reading yet"}
+    pressure = st.get("pressure_hpa")
     return {
-        "available": True,
+        "available": temp is not None,
         "temp_c": temp,
         "hum_pct": st.get("hum_pct"),
         "temp_ts": st.get("temp_ts"),
-        "baro": {"available": False, "note": "XC3702 dead — replacement pending"},
+        "baro": {
+            "available": pressure is not None,
+            "pressure_hpa": pressure,
+            "baro_temp_c": st.get("baro_temp_c"),
+            "baro_ts": st.get("baro_ts"),
+        },
     }
 
 
@@ -309,6 +313,9 @@ def twin():
             "sense_count": st["sense_count"],
             "pir_last_hold": st["pir_last_hold"],
             "snr_cm": st["snr_cm"],
+            "temp_c": st["temp_c"],
+            "hum_pct": st["hum_pct"],
+            "pressure_hpa": st["pressure_hpa"],
             "frag": oled._fragment_status(),
         },
     }

@@ -55,6 +55,13 @@ check("twin endpoint", r.status_code == 200 and "ring" in r.json()
       and "face" in r.json() and "status" in r.json())
 r = c.get("/state")
 check("state has sensors (honest)", r.json()["sensors"]["available"] is False)
+cortex.set_state({"pressure_hpa": 1026.0, "baro_temp_c": 23.1, "baro_ts": 1.0})
+r = c.get("/state")
+check("state baro block live", r.json()["sensors"]["baro"]["available"] is True
+      and r.json()["sensors"]["baro"]["pressure_hpa"] == 1026.0)
+r = c.get("/twin")
+check("twin carries weather", r.json()["status"]["pressure_hpa"] == 1026.0
+      and r.json()["status"]["temp_c"] is None)
 
 for mood in moods.MOODS:
     r = c.post("/feel", json={"feeling": mood})
@@ -251,6 +258,29 @@ check("sonar no-read leaves state", st["snr_cm"] == 42.5
 cortex.set_state({"sense_count": 9, "snr_count": 9})
 sense_mod.main = lambda: None  # don't run the daemon
 check("sonar class exists for ripperdoc", hasattr(sense_mod, "Sonar"))
+
+# baro: BMP180 compensation regression — the live chip values read on the
+# bench 09-12 (cal EEPROM of the replacement XC3702 sitting at 1026.0 hPa /
+# 23.1°C). If this drifts, the datasheet math broke.
+_cal = (8687, -1183, -14304, 33899, 25081, 20813, 6515, 47,
+        -32768, -11786, 2771)
+_t, _p = sense_mod.BMP180._compensate(_cal, 29108, 43654)
+check("baro compensation matches live chip", round(_t, 1) == 23.1
+      and round(_p / 100.0, 1) == 1026.0)
+
+cortex.set_state({"pressure_hpa": None, "baro_temp_c": None,
+                  "baro_ts": None, "baro_count": 0})
+_b = sense_mod.BMP180(period=0.0, reader=lambda: (23.1, 102600.0))
+_b.tick()
+st = cortex.get_state()
+check("baro tick writes pressure + count", st["pressure_hpa"] == 1026.0
+      and st["baro_temp_c"] == 23.1 and st["baro_count"] == 1
+      and st["baro_ts"] is not None)
+_b2 = sense_mod.BMP180(period=0.0, reader=lambda: None)
+_b2.tick()
+st = cortex.get_state()
+check("baro no-read leaves state", st["pressure_hpa"] == 1026.0
+      and st["baro_count"] == 1)
 
 print("== ripperdoc mode ==")
 

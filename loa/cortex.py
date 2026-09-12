@@ -58,6 +58,10 @@ def _connect():
             hum_pct REAL,
             temp_ts REAL,
             temp_count INTEGER NOT NULL DEFAULT 0,
+            pressure_hpa REAL,
+            baro_temp_c REAL,
+            baro_ts REAL,
+            baro_count INTEGER NOT NULL DEFAULT 0,
             updated_at REAL NOT NULL
         )""")
         _conn.execute("""CREATE TABLE IF NOT EXISTS events (
@@ -91,6 +95,10 @@ def _ensure_schema():
         ("hum_pct", "REAL"),
         ("temp_ts", "REAL"),
         ("temp_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("pressure_hpa", "REAL"),
+        ("baro_temp_c", "REAL"),
+        ("baro_ts", "REAL"),
+        ("baro_count", "INTEGER NOT NULL DEFAULT 0"),
     ):
         if name not in cols:
             _conn.execute(f"ALTER TABLE state ADD COLUMN {name} {ddl}")
@@ -119,7 +127,11 @@ def _row_to_state(row):
         "hum_pct": row[18],
         "temp_ts": row[19],
         "temp_count": row[20],
-        "updated_at": row[21],
+        "pressure_hpa": row[21],
+        "baro_temp_c": row[22],
+        "baro_ts": row[23],
+        "baro_count": row[24],
+        "updated_at": row[25],
     }
 
 
@@ -129,7 +141,8 @@ def get_state():
             "SELECT ring_state, pending_event, mood, expression, oled_mode, "
             "oled_text, oled_dim, ripperdoc, pir_high, sense_ts, sense_count, "
             "pir_on_ts, pir_last_hold, ripperdoc_page, snr_cm, snr_ts, "
-            "snr_count, temp_c, hum_pct, temp_ts, temp_count, updated_at "
+            "snr_count, temp_c, hum_pct, temp_ts, temp_count, "
+            "pressure_hpa, baro_temp_c, baro_ts, baro_count, updated_at "
             "FROM state WHERE id = 1"
         ).fetchone()
     if row is None:
@@ -145,6 +158,9 @@ def _defaults():
         "sense_ts": None, "sense_count": 0, "pir_on_ts": None,
         "pir_last_hold": 0.0, "ripperdoc_page": "sensors",
         "snr_cm": None, "snr_ts": None, "snr_count": 0,
+        "temp_c": None, "hum_pct": None, "temp_ts": None, "temp_count": 0,
+        "pressure_hpa": None, "baro_temp_c": None, "baro_ts": None,
+        "baro_count": 0,
         "updated_at": 0.0,
     }
 
@@ -156,9 +172,10 @@ def set_state(fields):
                "oled_mode", "oled_text", "oled_dim", "ripperdoc",
                "pir_high", "sense_ts", "sense_count", "ripperdoc_page",
                "pir_on_ts", "pir_last_hold", "snr_cm", "snr_ts", "snr_count",
-               "temp_c", "hum_pct", "temp_ts", "temp_count"}
+               "temp_c", "hum_pct", "temp_ts", "temp_count",
+               "pressure_hpa", "baro_temp_c", "baro_ts", "baro_count"}
     int_fields = {"oled_dim", "ripperdoc", "pir_high", "sense_count",
-                  "snr_count", "temp_count"}
+                  "snr_count", "temp_count", "baro_count"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
         return
