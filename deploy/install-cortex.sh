@@ -7,11 +7,7 @@
 # per sense so a failed sensor cannot deafen the others.
 set -euo pipefail
 
-echo "== stopping the old door (loa-ctl) =="
-sudo systemctl stop loa-ctl 2>/dev/null || true
-sudo systemctl disable loa-ctl 2>/dev/null || true
-
-echo "== clearing stale flag files =="
+echo "== retiring the old flag-file door =="
 rm -f /tmp/loa_alarm /tmp/loa_busy /tmp/loa_scan /tmp/loa_glitch
 
 echo "== installing loa[api] into the Pi venv =="
@@ -32,7 +28,7 @@ sudo systemctl enable --now loa-ring loa-oled loa-cortex \
                             loa-motion loa-sonar loa-weather loa-fault.timer
 
 echo "== retiring units that no longer exist =="
-for dead in loa-presence loa-sense loa-api loa-faults; do
+for dead in loa-presence loa-sense loa-api loa-faults loa-ctl; do
   sudo systemctl disable --now "$dead" 2>/dev/null || true
   sudo rm -f "/etc/systemd/system/$dead.service"
 done

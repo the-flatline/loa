@@ -88,8 +88,7 @@ pip install "git+https://github.com/the-flatline/loa.git@main[api]"
 
 Services (see `deploy/`): `loa-ring.service`, `loa-motion/sonar/weather.service`,
 `loa-oled.service`, `loa-cortex.service`. The cortex replaces the old flag-file
-door — stop `loa-ctl.service` (old) and `rm /tmp/loa_*` flags on deploy, then
-enable the four new units. `loa-cortex` binds 0.0.0.0:8765; ice's firewall is
+door. `loa-cortex` binds 0.0.0.0:8765; ice's firewall is
 the gate (dixie -> loa:8765 only), DNS-first via `loa.zendient.com`.
 
 ## Use (library)

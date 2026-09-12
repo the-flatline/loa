@@ -12,7 +12,6 @@ __version__ = "0.9.0"
 from .ws2812 import Ring
 from . import animations
 from . import cortex
-from . import control
 from . import ring
 from . import sense
 from . import oled
@@ -23,6 +22,6 @@ from . import expressions
 from . import cortexd
 
 __all__ = [
-    "Ring", "animations", "cortex", "control", "ring", "sense", "oled",
-    "oled_daemon", "amiga", "moods", "expressions", "api",
+    "Ring", "animations", "cortex", "ring", "sense", "oled",
+    "oled_daemon", "amiga", "moods", "expressions", "cortexd",
 ]

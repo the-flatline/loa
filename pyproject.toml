@@ -21,7 +21,6 @@ dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110", "cryptography>=42"]
 [project.scripts]
 loa-ring = "loa.ring:main"
 loa-cortex = "loa.cortexd:main"
-loa-ctl = "loa.control:serve"
 loa-oled = "loa.oled_daemon:main"
 loa-motion = "loa.motion:main"
 loa-sonar = "loa.sonar:main"
