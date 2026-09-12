@@ -845,7 +845,14 @@ class Ripperdoc:
         """
         amiga.draw(frame, "PWR", 2, 1, size=8)
         amiga.draw(frame, "6/7", 99, 1, size=8)
-        p = power_status()
+        # The state travels; the hardware does not. power_status() shells out to
+        # vcgencmd on THIS machine, so a console on dixie drew every rail as "--"
+        # while /state was carrying the whole PMIC readout. Found live 2026-09-12
+        # — the third time a local read masqueraded as a remote one.
+        #
+        # Fall back to the local PMIC only when the state says nothing, which is
+        # the body's own daemon rendering a state that predates this build.
+        p = (st or {}).get("power") or power_status()
         flags = p.get("throttled")
         self._indicator(frame, 2, 11, "UV",
                         bool(flags is not None and flags & 0x1))
