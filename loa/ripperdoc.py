@@ -10,8 +10,12 @@ Two faces, one command:
   ripperdoc page <p>   — switch the ripperdoc page
   ripperdoc status     — what the face is doing now
 
-Runs ON loa, talks to the cortex API on 127.0.0.1:8765 (LOA_API_BIND/PORT
-override) — no listener of its own, no web. You SSH to the box and run it.
+Runs anywhere. Talks to the cortex API over HTTP (`LOA_API_BIND` /
+LOA_API_PORT, default 127.0.0.1:8765) — so point it at the body from dixie
+(`LOA_API_BIND=192.168.1.200`) and it never has to run ON the Pi. It is a
+full-screen redraw loop: on the uncooled Pi at 68% of a core it drove the SoC
+onto its thermal limit (2026-09-12). The body senses and exposes; drawing
+belongs where the CPU is.
 
 Look: Workbench 1.3 — square corners, gadget title bars, the four-colour
 palette, a CRT backdrop. No rounded corners, no gradients, no spin.

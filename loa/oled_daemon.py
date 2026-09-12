@@ -5,6 +5,11 @@ the mode into the SH1106 framebuffer. Same decoupled pattern as the ring:
 the API never touches hardware, the daemon never thinks about intent.
 
 Modes: scope (the flatline) | ecg | ripple | noise | text (marquee) | off
+
+Runs on the body. The TUI does NOT: `ripperdoc` talks to the cortex API over
+HTTP and can run anywhere with the CPU for it — run it on dixie against the
+Pi (`LOA_API_BIND=192.168.1.200`), never on the Pi itself. It is a
+full-screen redraw loop; on an uncooled board it is a heater with a UI.
 """
 
 import random
@@ -15,7 +20,18 @@ from . import faults
 from . import oled
 
 FPS = 30
+# A ripperdoc page is text that changes a few times a second at most. Drawing
+# it 30 times a second is pure heat — on an uncooled Pi that is not a metaphor.
+# Animation wants frames; a status page wants none. (2026-09-12: 68% CPU in the
+# TUI and 11% here had the SoC sitting on its thermal limit.)
+IDLE_FPS = 4
 FRAME_PERIOD = 1.0 / FPS
+IDLE_PERIOD = 1.0 / IDLE_FPS
+
+
+def _period_for(mode: str) -> float:
+    """Frame period for a mode. Only animated modes need the full rate."""
+    return IDLE_PERIOD if mode == "ripperdoc" else FRAME_PERIOD
 
 _BODY: dict = {"ts": 0.0, "val": "well"}
 
@@ -116,7 +132,7 @@ def render_loop(display=None, max_frames=None):
                 frame.blit(display)
                 _publish_face(frame)
             frames += 1
-            time.sleep(FRAME_PERIOD)
+            time.sleep(_period_for(st["oled_mode"]))
     finally:
         try:
             display.close()
