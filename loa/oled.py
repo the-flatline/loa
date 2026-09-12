@@ -755,10 +755,10 @@ class Ripperdoc:
                         bool(flags is not None and flags & 0x1))
         self._indicator(frame, 40, 12, "THR",
                         bool(flags is not None and flags & 0x4))
-        self._rail(frame, 2, 28, "3V3", p.get("3V3_SYS_V"), 3, "V")
-        self._rail(frame, 2, 37, "3V3I", p.get("3V3_SYS_A"), 2, "A")
-        self._rail(frame, 2, 46, "CORE", p.get("VDD_CORE_V"), 3, "V")
-        self._rail(frame, 2, 55, "CRI", p.get("VDD_CORE_A"), 2, "A")
+        self._rail(frame, 2, 28, "5V", p.get("EXT5V_V"), 2, "V")
+        self._rail(frame, 2, 37, "3V3", p.get("3V3_SYS_V"), 3, "V")
+        self._rail(frame, 2, 46, "3V3I", p.get("3V3_SYS_A"), 2, "A")
+        self._rail(frame, 2, 55, "CORE", p.get("VDD_CORE_V"), 3, "V")
 
     def _rail(self, frame, x, y, label, val, dp, unit):
         """One telemetry line. Dashes when the rail can't be read — off-Pi,
