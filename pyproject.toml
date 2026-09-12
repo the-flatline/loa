@@ -42,4 +42,8 @@ loa-fault = "loa.fault:main"
 loa-topic-tail = "loa.topic:main"
 
 [tool.setuptools]
-packages = ["loa"]
+# loa.pb MUST be listed: it holds the GENERATED protobuf bindings, and a wheel
+# built without it installs cleanly and then dies on `No module named loa.pb` at
+# import. Found on the body 2026-09-13 — the source tree always had it, so only
+# an install from git could show it.
+packages = ["loa", "loa.pb"]
