@@ -37,28 +37,40 @@ def test_every_live_throttle_condition_is_reported():
     rows = []
 
     class _R:                                             # noqa: D401
-        def __init__(self, bits):
+        def __init__(self, bits, temp="84.0'C"):
             self.bits = bits
+            self.temp = temp
 
         def __call__(self, cmd, timeout=8):
             if "get_throttled" in cmd:
                 return 0, f"throttled=0x{self.bits:x}", ""
             if "measure_temp" in cmd:
-                return 0, "temp=84.0'C", ""
+                return 0, f"temp={self.temp}", ""
             return 1, "", ""
 
     orig = f._run
     try:
-        f._run = _R(0x8)                                  # soft temp limit only
+        f._run = _R(0x8)                                  # heat: soft temp only
         f._check_rails(rows)
-        assert [r["code"] for r in rows] == ["THERMAL"]
+        assert [r["code"] for r in rows] == ["HOT"], rows
         assert "84.0C" in rows[0]["text"]
 
         rows.clear()
-        f._run = _R(0x5)                                  # under-voltage + throttled
+        f._run = _R(0x6)                                  # capped + throttled,
+        f._check_rails(rows)                              # same hot SoC
+        assert [r["code"] for r in rows] == ["HOT"], "one row per CAUSE — the "
+        # response bits flickering must not read as the body changing its mind
+
+        rows.clear()
+        f._run = _R(0x5)                                  # sagging input, and
+        f._check_rails(rows)                              # the SoC coping
+        assert [r["code"] for r in rows] == ["UNDERVOLT"], rows
+        assert "throttled to cope" in rows[0]["text"]
+
+        rows.clear()
+        f._run = _R(0x2, "62.0'C")                        # capped, temp fine
         f._check_rails(rows)
-        codes = [r["code"] for r in rows]
-        assert "UNDERVOLT" in codes and "THROTTLED" in codes, codes
+        assert [r["code"] for r in rows] == ["THROTTLED"], rows
 
         rows.clear()
         f._run = _R(0x0)                                  # healthy is silent

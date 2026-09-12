@@ -70,6 +70,15 @@ def _connect():
             kind TEXT NOT NULL,
             detail TEXT
         )""")
+        _conn.execute("""CREATE TABLE IF NOT EXISTS baro_samples (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts REAL NOT NULL,
+            pressure_hpa REAL NOT NULL,
+            baro_temp_c REAL
+        )""")
+        _conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_baro_samples_ts "
+            "ON baro_samples (ts)")
         _conn.execute(
             "INSERT OR IGNORE INTO state (id, updated_at) VALUES (1, ?)",
             (time.time(),))
@@ -198,6 +207,74 @@ def log_event(kind, detail=None):
             "INSERT INTO events (ts, kind, detail) VALUES (?, ?, ?)",
             (time.time(), kind, json.dumps(detail) if detail is not None
              else None))
+
+
+# -- baro telemetry -------------------------------------------------------
+#
+# Pressure is a stream, not a state: the state row holds the latest read,
+# baro_samples keeps the history the trend is computed from. 10s cadence is
+# ~8.6k rows/day; samples older than 7 days are pruned on insert.
+
+BARO_KEEP_S = 7 * 86400
+
+
+def baro_sample(pressure_hpa, baro_temp_c, ts=None):
+    now = ts if ts is not None else time.time()
+    with _lock:
+        _connect().execute(
+            "INSERT INTO baro_samples (ts, pressure_hpa, baro_temp_c) "
+            "VALUES (?, ?, ?)", (now, pressure_hpa, baro_temp_c))
+        _connect().execute(
+            "DELETE FROM baro_samples WHERE ts < ?", (now - BARO_KEEP_S,))
+
+
+def baro_samples(since=None, limit=None):
+    """Rows (ts, pressure_hpa, baro_temp_c) ascending, optional window."""
+    with _lock:
+        if since is not None:
+            rows = _connect().execute(
+                "SELECT ts, pressure_hpa, baro_temp_c FROM baro_samples "
+                "WHERE ts >= ? ORDER BY ts", (since,)).fetchall()
+        else:
+            rows = _connect().execute(
+                "SELECT ts, pressure_hpa, baro_temp_c FROM baro_samples "
+                "ORDER BY ts").fetchall()
+    if limit is not None:
+        rows = rows[-limit:]
+    return rows
+
+
+TREND_DEADBAND_HPA_H = 0.3    # |slope| below this reads as steady
+
+
+def _trend_from_samples(pairs, now, window_s):
+    """Least-squares slope over the window -> trend dict. pairs: [(ts, hPa)].
+    Pure — tests feed synthetic series without a database."""
+    pts = [(t, p) for t, p in pairs if t >= now - window_s]
+    if len(pts) < 2:
+        return {"dir": "steady", "slope_hpa_per_h": 0.0, "delta_hpa": 0.0}
+    n = len(pts)
+    sx = sum(t for t, _ in pts)
+    sy = sum(p for _, p in pts)
+    sxx = sum(t * t for t, _ in pts)
+    sxy = sum(t * p for t, p in pts)
+    denom = n * sxx - sx * sx
+    slope_h = ((n * sxy - sx * sy) / denom * 3600.0) if denom else 0.0
+    delta = pts[-1][1] - pts[0][1]
+    if slope_h > TREND_DEADBAND_HPA_H:
+        d = "rising"
+    elif slope_h < -TREND_DEADBAND_HPA_H:
+        d = "falling"
+    else:
+        d = "steady"
+    return {"dir": d, "slope_hpa_per_h": round(slope_h, 2),
+            "delta_hpa": round(delta, 2)}
+
+
+def baro_trend(window_s=3 * 3600, now=None):
+    now = now if now is not None else time.time()
+    rows = baro_samples(since=now - window_s)
+    return _trend_from_samples([(t, p) for t, p, _ in rows], now, window_s)
 
 
 def history(limit=20):

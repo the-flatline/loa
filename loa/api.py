@@ -126,8 +126,31 @@ def _sensors_state():
             "pressure_hpa": pressure,
             "baro_temp_c": st.get("baro_temp_c"),
             "baro_ts": st.get("baro_ts"),
+            "trend": cortex.baro_trend(),
         },
     }
+
+
+def _baro_series(now=None, window_s=2 * 3600, step_s=60, max_pts=120):
+    """Pressure history for the twin sparkline — bucketed to one point per
+    step_s, returned as [(seconds_ago, hPa)] with the newest last."""
+    now = now if now is not None else time.time()
+    rows = cortex.baro_samples(since=now - window_s)
+    pts = [(t, p) for t, p, _ in rows]
+    if not pts:
+        return []
+    out = []
+    bucket = int(pts[0][0] // step_s)
+    acc = []
+    for t, p in pts:
+        b = int(t // step_s)
+        if b != bucket:
+            out.append((bucket * step_s, sum(acc) / len(acc)))
+            bucket, acc = b, []
+        acc.append(p)
+    if acc:
+        out.append((bucket * step_s, sum(acc) / len(acc)))
+    return [(round(t - now, 1), round(p, 1)) for t, p in out[-max_pts:]]
 
 
 def _full_state(history_n=0):
@@ -320,6 +343,8 @@ def twin():
             "temp_c": st["temp_c"],
             "hum_pct": st["hum_pct"],
             "pressure_hpa": st["pressure_hpa"],
+            "baro_trend": cortex.baro_trend(),
+            "baro_series": _baro_series(),
             "frag": oled._fragment_status(),
         },
     }

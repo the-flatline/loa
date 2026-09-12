@@ -452,6 +452,7 @@ class BMP180:
         n = (cortex.get_state().get("baro_count") or 0) + 1
         cortex.set_state({"pressure_hpa": pa / 100.0, "baro_temp_c": temp_c,
                           "baro_ts": now, "baro_count": n})
+        cortex.baro_sample(pa / 100.0, temp_c, now)
 
     def run(self):
         while not self._stop.is_set():

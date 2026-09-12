@@ -21,6 +21,8 @@ import time
 
 from . import amiga
 
+from . import cortex
+
 from . import faults
 
 from . import topaz
@@ -712,7 +714,21 @@ class Ripperdoc:
                 amiga.draw(frame, s, WIDTH - amiga.width(s, 8), 52, size=8)
         if pressure is not None:
             s = f"{pressure:.0f}HPA"
-            amiga.draw(frame, s, WIDTH - amiga.width(s, 8), 43, size=8)
+            sx = WIDTH - amiga.width(s, 8)
+            amiga.draw(frame, s, sx, 43, size=8)
+            self._trend_caret(frame, sx - 8, 45, cortex.baro_trend()["dir"])
+
+    def _trend_caret(self, frame, x, y, direction):
+        """7x4 up/down/steady caret — the Amiga font has no arrows, so it is
+        drawn pixel by pixel left of the hPa value."""
+        if direction == "rising":
+            pts = ((3, 0), (2, 1), (4, 1), (1, 2), (5, 2), (0, 3), (6, 3))
+        elif direction == "falling":
+            pts = ((3, 3), (2, 2), (4, 2), (1, 1), (5, 1), (0, 0), (6, 0))
+        else:
+            pts = ((0, 2), (1, 2), (2, 2), (3, 2), (4, 2), (5, 2), (6, 2))
+        for dx, dy in pts:
+            frame.px(x + dx, y + dy)
 
     def _gauge(self, frame, x, y, frac):
         """Horizontal bulb thermometer — the reference icon: solid filled

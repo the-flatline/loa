@@ -153,11 +153,15 @@ def _check_buses(rows):
                                  f"{expected}, so the {label.lower()} is dark"})
 
 
-def _temp_c():
+def _temp_val():
+    """Temperature as a number, or None. `measure_temp` prints 84.5'C."""
     rc, out, _ = _run("vcgencmd measure_temp")
-    if rc == 0 and "=" in out:
-        return out.strip().split("=")[1].replace("'C", "C")
-    return "temp unknown"
+    if rc != 0 or "=" not in out:
+        return None
+    try:
+        return float(out.split("=")[1].strip().strip("'C").strip())
+    except ValueError:
+        return None
 
 
 def _check_rails(rows):
@@ -168,23 +172,26 @@ def _check_rails(rows):
         bits = int(out.split("=")[1], 16)
     except ValueError:
         return
-    # Bits 0-3 are the LIVE conditions and they are independent — check each,
-    # never `elif`. Bit 3 is the soft TEMPERATURE limit: leave it out and a
-    # thermally-limited Pi reads as healthy, which is how a real 84C throttle
-    # went unreported. Bit 1 is only a cap; bit 2 is the cap doing its job.
+    # One row PER CAUSE, never one per bit. Bits 1/2 are the SoC's RESPONSE
+    # (capped, throttled) and bit 3 is heat while bit 0 is the 5V input; the
+    # response bits flicker from sample to sample, so reporting them
+    # separately made the page look like it kept changing its mind when the
+    # underlying condition never moved. Name the cause, carry the temperature.
+    thr = bits & 0xE
     if bits & 0x1:
         rows.append({"level": "fault", "code": "UNDERVOLT",
-                     "text": f"5V input sagging RIGHT NOW (throttled={hex(bits)})"})
-    if bits & 0x8:
-        rows.append({"level": "fault", "code": "THERMAL",
-                     "text": f"soft temp limit ACTIVE at {_temp_c()} "
-                             f"(throttled={hex(bits)})"})
-    if bits & 0x4:
-        rows.append({"level": "fault", "code": "THROTTLED",
-                     "text": f"SoC throttling RIGHT NOW (throttled={hex(bits)})"})
-    if bits & 0x2:
-        rows.append({"level": "warn", "code": "FREQ-CAP",
-                     "text": f"ARM frequency capped (throttled={hex(bits)})"})
+                     "text": f"5V input sagging RIGHT NOW"
+                             + (" — SoC throttled to cope" if thr else "")
+                             + f" (throttled={hex(bits)})"})
+    elif thr:
+        temp = _temp_val()
+        hot = temp is None or temp >= 80.0
+        rows.append({"level": "fault",
+                     "code": "HOT" if hot else "THROTTLED",
+                     "text": (f"SoC at {temp}C — freq-capped/throttling to cope"
+                              if temp is not None else
+                              "SoC throttling — temperature unreadable")
+                             + f" (throttled={hex(bits)})"})
 
 
 def _check_disk(rows):
