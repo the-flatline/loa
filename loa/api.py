@@ -69,7 +69,7 @@ class DisplayRequest(BaseModel):
 
 class RipperdocRequest(BaseModel):
     on: bool | None = Field(None, description="bench mode on/off")
-    page: str | None = Field(None, description="sensors|pir|snr|frag — which board page")
+    page: str | None = Field(None, description="sensors|pir|snr|temp|frag|power — which board page")
 
 
 class FragmentAppendRequest(BaseModel):
@@ -160,6 +160,7 @@ def _full_state(history_n=0):
             "snr_count": st["snr_count"],
         },
         "system": _system_state(),
+        "power": oled.power_status(),
         "history": cortex.history(history_n) if history_n > 0 else [],
     }
 

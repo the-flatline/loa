@@ -5,7 +5,7 @@ Two faces, one command:
   ripperdoc            — the TUI: Workbench-chrome console with digital twin
                          panes (OLED + ring rendered by the REAL loa
                          renderers), live status, ripperdoc/mood/page keys.
-  ripperdoc on [page]  — flip ripperdoc on (page: sensors|pir|snr|temp|frag)
+  ripperdoc on [page]  — flip ripperdoc on (page: sensors|pir|snr|temp|frag|power)
   ripperdoc off        — back to scope
   ripperdoc page <p>   — switch the ripperdoc page
   ripperdoc status     — what the face is doing now
@@ -140,9 +140,20 @@ def fetch_sense():
     oled_mode = st["oled_mode"]
     pir = "SOLID" if st.get("pir_high") else "open"
     snr = "ON" if st.get("snr_cm") is not None else "OFF"
+    p = oled.power_status()
+    v3, fl = p.get("3V3_SYS_V"), p.get("throttled")
+    if v3 is None:
+        pwr = "PWR --"
+    else:
+        pwr = f"3V3 {v3:.2f}V"
+        if fl is not None and fl & 0x1:
+            pwr += " UV!"          # 5V input sagging RIGHT NOW
+        if fl is not None and fl & 0x4:
+            pwr += " THR!"
     return (f" mood {mood:8s} ring {ring:6s} oled {oled_mode:9s} "
             f"page {page:7s} PIR {pir:5s} SNR {snr:3s} "
-            f"N{st.get('sense_count', 0):04d} T{st.get('pir_last_hold', 0.0):5.1f}s")
+            f"N{st.get('sense_count', 0):04d} T{st.get('pir_last_hold', 0.0):5.1f}s "
+            f"{pwr}")
 
 
 class RipperdocApp(App):
@@ -156,6 +167,7 @@ class RipperdocApp(App):
         ("3", "page_snr", "snr page"),
         ("4", "page_temp", "temp page"),
         ("5", "page_frag", "frag page"),
+        ("6", "page_power", "power page"),
         ("m", "mood", "next mood"),
         ("q", "quit", "quit"),
     ]
@@ -253,6 +265,12 @@ class RipperdocApp(App):
         except Exception:
             pass
 
+    def action_page_power(self):
+        try:
+            _post("/ripperdoc", {"page": "power"})
+        except Exception:
+            pass
+
     def action_mood(self):
         from . import moods
         names = list(moods.MOODS)
@@ -289,7 +307,7 @@ def main():
         elif cmd == "page":
             page = args[1] if len(args) > 1 else None
             if page is None:
-                print("usage: ripperdoc page <sensors|pir|snr|temp|frag>")
+                print("usage: ripperdoc page <sensors|pir|snr|temp|frag|power>")
                 return 2
             r = _post("/ripperdoc", {"page": page})
             print(f"page {r['page']}")

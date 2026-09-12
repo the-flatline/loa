@@ -51,6 +51,52 @@ def _fragment_status() -> dict:
     _FRAG_STATUS_CACHE["payload"] = payload
     return payload
 
+
+# ---------------------------------------------------------------------------
+# Pi 5 rails + under-voltage flags for the PWR page — cached, sanctioned
+
+_POWER_CACHE: dict = {"ts": 0.0, "data": {}}
+POWER_TTL_S = 1.0
+
+
+def power_status() -> dict:
+    """Pi 5 rail volts/amps plus the throttled bitfield. Cached ~1s so a
+    30fps page can call it every frame; empty dict off-Pi — dixie has no
+    rails to report, and must not pretend otherwise.
+
+    ``throttled`` bits: 0 = under-voltage NOW, 2 = throttled NOW,
+    16/18 = under-voltage/throttling has happened since boot. Bit 0 is the
+    one that matters: it is the board saying its 5V input is sagging, which
+    sags 3V3 with it and takes the panel dark.
+    """
+    now = time.time()
+    if _POWER_CACHE["data"] and now - _POWER_CACHE["ts"] < POWER_TTL_S:
+        return _POWER_CACHE["data"]
+    data: dict = {}
+    try:
+        import subprocess
+        r = subprocess.run(["vcgencmd", "pmic_read_adc"],
+                           capture_output=True, text=True, timeout=3)
+        if r.returncode == 0:
+            for line in r.stdout.splitlines():
+                if "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.split()[0]        # "3V3_SYS_V volt(9)" -> 3V3_SYS_V
+                try:
+                    data[key] = float(val.strip().rstrip("VA"))
+                except ValueError:
+                    continue
+        r = subprocess.run(["vcgencmd", "get_throttled"],
+                           capture_output=True, text=True, timeout=3)
+        if r.returncode == 0 and "=" in r.stdout:
+            data["throttled"] = int(r.stdout.strip().split("=", 1)[1], 16)
+    except Exception:
+        pass
+    _POWER_CACHE["ts"] = now
+    _POWER_CACHE["data"] = data
+    return data
+
 # ---------------------------------------------------------------------------
 # framebuffer
 
@@ -566,7 +612,7 @@ class Ripperdoc:
     """
 
     TITLE = "RIPPERDOC"
-    PAGES = ("sensors", "pir", "snr", "temp", "frag")
+    PAGES = ("sensors", "pir", "snr", "temp", "frag", "power")
 
     def draw_state(self, frame, t, st):
         page = st.get("ripperdoc_page", "sensors")
@@ -578,12 +624,14 @@ class Ripperdoc:
             self._page_temp(frame, t, st)
         elif page == "frag":
             self._page_frag(frame, t, st)
+        elif page == "power":
+            self._page_power(frame, t, st)
         else:
             self._page_sensors(frame, t, st)
 
     def _page_sensors(self, frame, t, st):
         amiga.draw(frame, self.TITLE, 2, 1, size=8)
-        amiga.draw(frame, "1/5", 99, 1, size=8)
+        amiga.draw(frame, "1/6", 99, 1, size=8)
         self._indicator(frame, 2, 12, "PIR", bool(st.get("pir_high")))
         self._indicator(frame, 39, 12, "SNR", st.get("snr_cm") is not None)
         self._indicator(frame, 85, 12, "TMP", st.get("temp_c") is not None)
@@ -600,7 +648,7 @@ class Ripperdoc:
 
     def _page_pir(self, frame, t, st):
         amiga.draw(frame, "PIR", 2, 1, size=8)
-        amiga.draw(frame, "2/5", 99, 1, size=8)
+        amiga.draw(frame, "2/6", 99, 1, size=8)
         self._indicator(frame, 2, 12, "PIR", bool(st.get("pir_high")))
         count = st.get("sense_count") or 0
         last = st.get("sense_ts")
@@ -617,7 +665,7 @@ class Ripperdoc:
 
     def _page_snr(self, frame, t, st):
         amiga.draw(frame, "SNR", 2, 1, size=8)
-        amiga.draw(frame, "3/5", 99, 1, size=8)
+        amiga.draw(frame, "3/6", 99, 1, size=8)
         snr_cm = st.get("snr_cm")
         if snr_cm is not None:
             amiga.draw(frame, f"{snr_cm:4.0f}CM", 2, 12, size=8)
@@ -633,7 +681,7 @@ class Ripperdoc:
 
     def _page_temp(self, frame, t, st):
         amiga.draw(frame, "TMP", 2, 1, size=8)
-        amiga.draw(frame, "4/5", 99, 1, size=8)
+        amiga.draw(frame, "4/6", 99, 1, size=8)
         temp = st.get("temp_c")
         hum = st.get("hum_pct")
         pressure = st.get("pressure_hpa")
@@ -682,7 +730,7 @@ class Ripperdoc:
 
     def _page_frag(self, frame, t, st):
         amiga.draw(frame, "FRAG", 2, 1, size=8)
-        amiga.draw(frame, "5/5", 99, 1, size=8)
+        amiga.draw(frame, "5/6", 99, 1, size=8)
         frag = _fragment_status()
         sealed = bool(frag.get("sealed"))
         self._lock(frame, 8, 16)
@@ -691,6 +739,36 @@ class Ripperdoc:
         access = frag.get("access_count") or 0
         amiga.draw(frame, f"N{count:03d}", 2, 32, size=8)
         amiga.draw(frame, f"A{access:03d}", 40, 32, size=8)
+
+    def _page_power(self, frame, t, st):
+        """The bench's power truth — the page that would have saved an
+        evening. Rails in volts and amps straight off the PMIC, and the two
+        flags that matter: UV lit means the 5V input is sagging right now,
+        THR lit means the SoC is throttling for it. A healthy face shows
+        UV and THR dark and 3V3 sitting at 3.3.
+        """
+        amiga.draw(frame, "PWR", 2, 1, size=8)
+        amiga.draw(frame, "6/6", 99, 1, size=8)
+        p = power_status()
+        flags = p.get("throttled")
+        self._indicator(frame, 2, 12, "UV",
+                        bool(flags is not None and flags & 0x1))
+        self._indicator(frame, 40, 12, "THR",
+                        bool(flags is not None and flags & 0x4))
+        self._rail(frame, 2, 28, "3V3", p.get("3V3_SYS_V"), 3, "V")
+        self._rail(frame, 2, 37, "3V3I", p.get("3V3_SYS_A"), 2, "A")
+        self._rail(frame, 2, 46, "CORE", p.get("VDD_CORE_V"), 3, "V")
+        self._rail(frame, 2, 55, "CRI", p.get("VDD_CORE_A"), 2, "A")
+
+    def _rail(self, frame, x, y, label, val, dp, unit):
+        """One telemetry line. Dashes when the rail can't be read — off-Pi,
+        or vcgencmd missing. Never invents a number.
+        """
+        if val is None:
+            s = f"{label:<4} --"
+        else:
+            s = f"{label:<4} {val:.{dp}f}{unit}"
+        amiga.draw(frame, s, x, y, size=8)
 
     def _lock(self, frame, x, y):
         """A small padlock glyph, 10 wide x 9 tall."""

@@ -296,7 +296,7 @@ wheels = [
 
 [[package]]
 name = "loa"
-version = "0.7.0"
+version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
@@ -309,7 +309,7 @@ api = [
     { name = "fastapi" },
     { name = "uvicorn" },
 ]
-bench = [
+ripperdoc = [
     { name = "textual" },
 ]
 
@@ -327,10 +327,10 @@ requires-dist = [
     { name = "cryptography", marker = "extra == 'api'", specifier = ">=42" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.110" },
     { name = "spidev", specifier = ">=3.5" },
-    { name = "textual", marker = "extra == 'bench'", specifier = ">=0.60" },
+    { name = "textual", marker = "extra == 'ripperdoc'", specifier = ">=0.60" },
     { name = "uvicorn", marker = "extra == 'api'", specifier = ">=0.27" },
 ]
-provides-extras = ["api", "bench"]
+provides-extras = ["api", "ripperdoc"]
 
 [package.metadata.requires-dev]
 dev = [
