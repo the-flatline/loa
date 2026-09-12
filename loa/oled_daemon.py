@@ -20,6 +20,13 @@ FRAME_PERIOD = 1.0 / FPS
 _BODY: dict = {"ts": 0.0, "val": "well"}
 
 
+def _ring_is_dark() -> bool:
+    """True when nothing is driving the ring bus — the sweep names this
+    RING DARK."""
+    rep = faults.status()
+    return any(r.get("code") == "RING DARK" for r in (rep.get("rows") or []))
+
+
 def _body_condition(ttl=2.0) -> str:
     """The body's own condition, polled slowly — this sits inside the 30fps
     render loop. A broken sweep reads as mute, never as well."""
@@ -69,10 +76,14 @@ def render_loop(display=None, max_frames=None):
         while max_frames is None or frames < max_frames:
             st = cortex.get_state()
             # The face is the deliberate tell: when the body hurts it names
-            # where — but only takes over an IDLE face. At the bench you are
-            # driving the pages yourself, and it must not fight you for them.
-            if _body_condition() in ("hurts", "mute") and st["oled_mode"] != "ripperdoc":
-                st = {**st, "oled_mode": "ripperdoc", "ripperdoc_page": "fault"}
+            # where. It takes over an IDLE face — at the bench you are driving
+            # the pages and it must not fight you for them — but if the RING
+            # IS DARK it takes over regardless: when the eyes are out, the
+            # mouth has to speak or the body has no channel left at all.
+            if _body_condition() in ("hurts", "mute"):
+                if st["oled_mode"] != "ripperdoc" or _ring_is_dark():
+                    st = {**st, "oled_mode": "ripperdoc",
+                          "ripperdoc_page": "fault"}
             key = (st["oled_mode"], st["oled_text"], st["oled_dim"])
             if key != last_key:
                 last_key = key
