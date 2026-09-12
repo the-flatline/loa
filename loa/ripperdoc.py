@@ -20,6 +20,7 @@ belongs where the CPU is.
 Look: Workbench 1.3 — square corners, gadget title bars, the four-colour
 palette, a CRT backdrop. No rounded corners, no gradients, no spin.
 """
+import base64
 import json
 import os
 import sys
@@ -130,21 +131,54 @@ def ring_art_bytes(raw, pos=None):
     return "\n".join("".join(row) for row in grid)
 
 
+# the body's ring topic. It is the BODY's path: read it from dixie and you get
+# nothing, forever, because it only exists on the body. Fetch /twin instead.
 RING_TOPIC = "/dev/shm/loa-ring.bin"
+
+
+def body_state():
+    """The BODY's state — over HTTP, always.
+
+    Never cortex.get_state() in here: that opens whichever cortex.db lives on
+    the machine the console happens to be running on. Run the console from
+    dixie and it cheerfully reads dixie's own (empty) database — calm, home,
+    page sensors — while the body is alarmed and hurting. Every keypress lands,
+    because the POSTs do reach the body, and nothing on screen ever moves. The
+    console is not broken; it is looking in the wrong place.
+
+    Found live 2026-09-12: keys "didn't work" on dixie against an alarmed body.
+    """
+    raw = _get("/state")
+    sense = raw.get("sense") or {}
+    oled_d = raw.get("oled") or {}
+    return {
+        "mood": (raw.get("mood") or {}).get("feeling") or "?",
+        "ring_state": (raw.get("ring") or {}).get("state") or "?",
+        "oled_mode": oled_d.get("mode") or "off",
+        "oled_text": oled_d.get("text"),
+        "ripperdoc": raw.get("ripperdoc"),
+        "ripperdoc_page": raw.get("ripperdoc_page") or "sensors",
+        "condition": raw.get("condition"),
+        "pir_high": sense.get("pir_high"),
+        "snr_cm": sense.get("snr_cm"),
+        "sense_count": sense.get("count"),
+        "pir_last_hold": sense.get("last_hold"),
+        "power": raw.get("power") or {},
+    }
 
 
 def fetch_sense():
     try:
-        st = cortex.get_state()
+        st = body_state()
     except Exception:
-        return "  cortex down"
-    page = st.get("ripperdoc_page", "sensors")
+        return "  body unreachable"
+    page = st["ripperdoc_page"]
     mood = st["mood"]
     ring = st["ring_state"]
     oled_mode = st["oled_mode"]
     pir = "SOLID" if st.get("pir_high") else "open"
     snr = "ON" if st.get("snr_cm") is not None else "OFF"
-    p = oled.power_status()
+    p = st.get("power") or {}
     v3, fl = p.get("3V3_SYS_V"), p.get("throttled")
     if v3 is None:
         pwr = "PWR --"
@@ -196,7 +230,7 @@ class RipperdocApp(App):
 
     def _tick(self):
         try:
-            st = cortex.get_state()
+            st = body_state()
         except Exception:
             return
         self.query_one("#status", Static).update(fetch_sense())
@@ -223,12 +257,12 @@ class RipperdocApp(App):
         self._tick_ring()
 
     def _tick_ring(self):
+        """Mirror the body's ring — fetched, not read off a local file."""
         try:
-            with open(RING_TOPIC, "rb") as f:
-                raw = f.read(72)
-        except OSError:
-            raw = None
-        if raw is None or len(raw) < 72:
+            raw = base64.b64decode((_get("/twin") or {}).get("ring") or "")
+        except Exception:
+            raw = b""
+        if len(raw) < 72:
             self.query_one("#ring-pane", Static).update(
                 "[red]RING OFFLINE[/]\n" + ring_art_bytes(bytes(72)))
             return
