@@ -638,15 +638,16 @@ class Ripperdoc:
         hum = st.get("hum_pct")
         if temp is None:
             amiga.draw(frame, "--.-C", 2, 52, size=8)
-            amiga.draw(frame, "--%", 110, 52, size=8)
-            self._gauge(frame, 2, 12, 0.0)
+            amiga.draw(frame, "--%", WIDTH - amiga.width("--%", 8), 52, size=8)
+            self._gauge(frame, 2, 14, 0.0)
             return
         lo, hi = 5.0, 40.0
         frac = max(0.0, min(1.0, (temp - lo) / (hi - lo)))
-        self._gauge(frame, 2, 12, frac)
+        self._gauge(frame, 2, 14, frac)
         amiga.draw(frame, f"{temp:4.1f}C", 2, 52, size=8)
         if hum is not None:
-            amiga.draw(frame, f"{hum:3.0f}%", 110, 52, size=8)
+            s = f"{hum:.0f}%"
+            amiga.draw(frame, s, WIDTH - amiga.width(s, 8), 52, size=8)
 
     def _gauge(self, frame, x, y, frac):
         """Horizontal bulb thermometer — the reference icon: solid filled
