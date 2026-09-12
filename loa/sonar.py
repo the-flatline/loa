@@ -8,7 +8,7 @@ import time
 
 from . import config
 from . import cortex
-from .sense import DEFAULT_ECHO, DEFAULT_SNR_PERIOD, DEFAULT_TRIG, Sonar
+from .sense import DEFAULT_ECHO, DEFAULT_SNR_PERIOD, DEFAULT_TRIG, Sonar, use_topic
 
 
 def main():
@@ -18,6 +18,7 @@ def main():
     period = float(cfg.get("sense_period", DEFAULT_SNR_PERIOD))
     enabled = str(cfg.get("sense_snr_enabled", "true")).lower() \
         not in ("0", "false", "no", "off")
+    use_topic()
 
     cortex.set_state({"snr_count": 0})
     if not enabled:

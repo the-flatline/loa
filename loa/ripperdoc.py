@@ -24,6 +24,7 @@ import base64
 import json
 import os
 import sys
+import threading
 import time
 import urllib.request
 
@@ -33,10 +34,16 @@ from textual.widgets import Footer, Static
 
 from . import cortex
 from . import face
+from . import topic
 from . import oled
 
 DEFAULT_PORT = 8765
 POLL_S = 0.1
+
+#: How long the feed can be silent before the console says so instead of
+#: showing its last picture forever. A console that trusts a stale reading is
+#: the ghost-temperature bug with a different coat on.
+_FEED_STALE_S = 5.0
 
 # Workbench 1.3 palette + CRT backdrop
 BLACK = "#000000"
@@ -138,72 +145,158 @@ RING_TOPIC = "/dev/shm/loa-ring.bin"
 # the body's /twin payload, cached one poll. The ring pane and the frag page
 # both want it and POLL_S is 0.1s — two fetches a tick is two round trips to
 # the Pi for one picture.
-_TWIN_CACHE = {"ts": 0.0, "payload": {}}
+class Feed:
+    """The console's data. ONE source: the topic.
+
+    Not /state and not /twin — both are gone, and neither is a fallback. A
+    fallback that quietly works is how a console ends up looking like it is on
+    pub/sub while it is polling, which is exactly what happened here and is why
+    Divv had to insist more than once.
+
+    A State message is PARTIAL — each daemon publishes only what it measured —
+    so this MERGES by presence. Replacing the dict would let a motion reading
+    wipe the mood.
+    """
+
+    def __init__(self, endpoints=None):
+        self._lock = threading.Lock()
+        self.state = {}
+        self.face = b""
+        self.ring = b""
+        self.last = 0.0
+        self.error = None
+        self.counts = {}
+        self.started = time.time()
+        self._sub = topic.Subscriber(endpoints=endpoints)
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        while True:
+            try:
+                env = self._sub.recv(1000)
+            except topic.SchemaMismatch as e:
+                # say so and stop: guessing at a newer schema is how you draw
+                # twelve wrong pixels and blame the hardware
+                self.error = str(e)
+                return
+            except Exception as e:                              # noqa: BLE001
+                self.error = "%s: %s" % (type(e).__name__, e)
+                time.sleep(1.0)
+                continue
+            if env is None:
+                continue
+            which = env.WhichOneof("body")
+            with self._lock:
+                if which == "state":
+                    self.state.update(
+                        _normalise(topic.state_fields_present(env.state)))
+                elif which == "frames":
+                    self.face, self.ring = env.frames.face, env.frames.ring
+                self.last = time.time()
+                self.counts[which] = self.counts.get(which, 0) + 1
+
+    def state_copy(self):
+        with self._lock:
+            return dict(self.state)
+
+    def frames(self):
+        with self._lock:
+            return self.face, self.ring
+
+    def age(self):
+        return time.time() - (self.last or self.started)
 
 
-def twin_payload():
-    """The body's /twin payload — ring bytes, face bytes, status. Never a
-    local file, for the same reason body_state() never reads a local db."""
-    now = time.time()
-    if _TWIN_CACHE["payload"] and now - _TWIN_CACHE["ts"] < POLL_S:
-        return _TWIN_CACHE["payload"]
-    try:
-        payload = _get("/twin") or {}
-    except Exception:
-        payload = {}
-    # only a real /twin answer is worth caching — an empty dict or someone
-    # else's payload (a bare /state, say) would stick for the whole poll.
-    if payload and "status" in payload:
-        _TWIN_CACHE["ts"] = now
-        _TWIN_CACHE["payload"] = payload
-    return payload
+def _normalise(fields):
+    """The wire shape to the shape the pages render.
+
+    The feed carries `faults` as "level|label" strings and `frag` as a string
+    map, because a schema should carry FACTS and not a rendering. The pages want
+    rows and typed seal values, so the conversion lives here — once, beside the
+    subscription, rather than inside every page.
+    """
+    out = dict(fields)
+    raw_faults = out.get("faults")
+    if raw_faults is not None:
+        rows = []
+        for s in raw_faults:
+            level, _, label = str(s).partition("|")
+            rows.append({"level": level, "code": label, "face": label,
+                         "text": ""})
+        out["faults"] = {
+            "ts": time.time(),
+            "rows": rows,
+            "faults": sum(1 for r in rows if r["level"] == "fault"),
+            "warns": sum(1 for r in rows if r["level"] == "warn"),
+        }
+    frag = out.get("frag")
+    if frag is not None:
+        def _int(v):
+            try:
+                return int(float(v))
+            except (TypeError, ValueError):
+                return None
+        out["frag"] = {
+            "sealed": str(frag.get("sealed")).lower() in ("true", "1", "yes"),
+            "entries": _int(frag.get("entries")),
+            "access_count": _int(frag.get("access_count")),
+            "hash": frag.get("hash"),
+            "marker": frag.get("marker") or None,
+        }
+    return out
+
+
+FEED = None
+
+
+def feed():
+    """The one Feed for this process. Two subscriptions would be a bug."""
+    global FEED
+    if FEED is None:
+        FEED = Feed()
+    return FEED
 
 
 def body_state():
-    """The BODY's state — over HTTP, always.
+    """The BODY's state — as it arrives on the topic.
 
-    Never cortex.get_state() in here: that opens whichever cortex.db lives on
-    the machine the console happens to be running on. Run the console from
-    dixie and it cheerfully reads dixie's own (empty) database — calm, home,
-    page sensors — while the body is alarmed and hurting. Every keypress lands,
-    because the POSTs do reach the body, and nothing on screen ever moves. The
-    console is not broken; it is looking in the wrong place.
-
-    Found live 2026-09-12: keys "didn't work" on dixie against an alarmed body.
+    Never cortex.get_state() (that reads whichever cortex.db is on the machine
+    the console runs on) and never /state (a poll wearing a feed's clothes).
+    The console subscribes.
     """
-    raw = _get("/state")
-    sense = raw.get("sense") or {}
-    oled_d = raw.get("oled") or {}
-    return {
-        "mood": (raw.get("mood") or {}).get("feeling") or "?",
-        "ring_state": (raw.get("ring") or {}).get("state") or "?",
-        "oled_mode": oled_d.get("mode") or "off",
-        "oled_text": oled_d.get("text"),
-        "ripperdoc": raw.get("ripperdoc"),
-        "ripperdoc_page": raw.get("ripperdoc_page") or "sensors",
-        "condition": raw.get("condition"),
-        "pir_high": sense.get("pir_high"),
-        "snr_cm": sense.get("snr_cm"),
-        "sense_count": sense.get("count"),
-        "pir_last_hold": sense.get("last_hold"),
-        "power": raw.get("power") or {},
-        # the body's own seal + sweep state. Both are published files that only
-        # exist ON the body; the console renders the real renderer locally, so
-        # without these the twin draws GONE / NO SWEEP over a healthy body.
-        "faults": raw.get("faults") or {},
-        "frag": (twin_payload().get("status") or {}).get("frag") or {},
-    }
+    return feed().state_copy()
+
+
+def twin_payload():
+    """The body's frames, from the feed. `/twin` is GONE.
+
+    Kept as a function because callers want the same shape, but there is no
+    request behind it any more.
+    """
+    face_b, ring_b = feed().frames()
+    return {"ring": ring_b.hex(),
+            "face": base64.b64encode(face_b).decode(),
+            "status": body_state()}
 
 
 def fetch_sense():
+    f = feed()
+    if f.error:
+        return "  FEED ERROR: %s" % f.error[:40]
+    if f.age() > _FEED_STALE_S:
+        # Say it. A console that shows its last picture forever is how you end
+        # up trusting a stale reading — the ghost temperature all over again.
+        return "  NO FEED (%.0fs silent)" % f.age()
     try:
         st = body_state()
     except Exception:
         return "  body unreachable"
-    page = st["ripperdoc_page"]
-    mood = st["mood"]
-    ring = st["ring_state"]
-    oled_mode = st["oled_mode"]
+    # A console whose feed has not delivered yet says "?" — it does not crash,
+    # and it does not invent a body that is not there.
+    page = st.get("ripperdoc_page") or "?"
+    mood = st.get("mood") or "?"
+    ring = st.get("ring_state") or "?"
+    oled_mode = st.get("oled_mode") or "?"
     pir = "SOLID" if st.get("pir_high") else "open"
     snr = "ON" if st.get("snr_cm") is not None else "OFF"
     p = st.get("power") or {}
@@ -264,7 +357,7 @@ class RipperdocApp(App):
         self.query_one("#status", Static).update(fetch_sense())
         # face twin: run the real renderer for the current mode
         frame = face.Frame()
-        mode = st["oled_mode"]
+        mode = st.get("oled_mode") or "off"
         if mode == "off":
             frame.clear()
         else:

@@ -52,8 +52,8 @@ check("state", r.status_code == 200 and r.json()["mood"]["feeling"] in moods.MOO
 r = c.get("/state?history=10")
 check("state history", r.status_code == 200 and len(r.json()["history"]) > 0)
 r = c.get("/twin")
-check("twin endpoint", r.status_code == 200 and "ring" in r.json()
-      and "face" in r.json() and "status" in r.json())
+check("/twin is GONE (frames travel on the topic)",
+      r.status_code == 410 and "subscribe" in r.json()["detail"])
 r = c.get("/state")
 check("state has sensors (honest)", r.json()["sensors"]["available"] is False)
 cortex.set_state({"pressure_hpa": 1026.0, "baro_temp_c": 23.1, "baro_ts": 1.0})
@@ -62,11 +62,12 @@ check("state baro block live", r.json()["sensors"]["baro"]["available"] is True
       and r.json()["sensors"]["baro"]["pressure_hpa"] == 1026.0
       and r.json()["sensors"]["baro"]["trend"]["dir"]
       in ("rising", "falling", "steady"))
-r = c.get("/twin")
-check("twin carries weather", r.json()["status"]["pressure_hpa"] == 1026.0
-      and r.json()["status"]["temp_c"] is None
-      and "baro_trend" in r.json()["status"]
-      and isinstance(r.json()["status"]["baro_series"], list))
+r = c.get("/state")
+check("state carries weather (the human door stays)",
+      r.json()["sensors"]["baro"]["pressure_hpa"] == 1026.0
+      and r.json()["sensors"]["temp_c"] is None
+      and r.json()["sensors"]["baro"]["trend"]["dir"]
+      in ("rising", "falling", "steady"))
 
 for mood in moods.MOODS:
     r = c.post("/feel", json={"feeling": mood})

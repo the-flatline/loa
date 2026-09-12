@@ -1,150 +1,103 @@
-"""The console reads the BODY, not the machine it happens to run on.
+"""The console consumes the TOPIC. There is no HTTP data path.
 
-Found live 2026-09-12: running `ripperdoc` from dixie, every hotkey appeared
-dead. The keys were fine — the POSTs reached the body and changed its page.
-The console's *reads* went to cortex.get_state(), which opens whichever
-cortex.db is on the local machine. On dixie that is dixie's own empty database
-(calm / home / page sensors), so the screen never moved while the body was
-alarmed and hurting. RING_TOPIC had the same defect: a body path read locally,
-so the ring pane was permanently "RING OFFLINE" off-body.
+These tests replaced a set that asserted the console reads /state and /twin over
+HTTP. That contract is gone: Divv's shape is one source and many consumers, and a
+console that quietly falls back to a poll is not on pub/sub no matter what the
+code around it says.
+
+The stub feed is deliberate: the point is what the console does with the data it
+receives, and a real socket in a unit test would only prove that zmq works.
 """
 import base64
 
 import loa.ripperdoc as rd
+from loa import face, topic
 
 
-def test_console_never_reads_a_local_cortex_db(monkeypatch):
-    def explode(*a, **kw):                      # the old path, now forbidden
-        raise AssertionError("console read a LOCAL cortex db — it must ask "
-                             "the body over HTTP instead")
+class _StubFeed:
+    """A Feed that has already received what the test wants it to have."""
 
-    monkeypatch.setattr(rd.cortex, "get_state", explode)
-    monkeypatch.setattr(rd, "_get", lambda path: {
-        "mood": {"feeling": "alarmed"},
-        "ring": {"state": "alarm"},
-        "oled": {"mode": "ripperdoc", "text": "!! FLATLINE !!"},
-        "ripperdoc": True,
-        "ripperdoc_page": "snr",
-        "condition": "hurts",
-        "sense": {"pir_high": True, "count": 7, "last_hold": 4.2},
-        "power": {"3V3_SYS_V": 3.331},
-    })
+    def __init__(self, state=None, face_bytes=b"", ring_bytes=b"",
+                 age=0.0, error=None):
+        self._state = state or {}
+        self._face = face_bytes
+        self._ring = ring_bytes
+        self._age = age
+        self.error = error
 
+    def state_copy(self):
+        return dict(self._state)
+
+    def frames(self):
+        return self._face, self._ring
+
+    def age(self):
+        return self._age
+
+
+def _no_http(monkeypatch):
+    """Fail the test if the console reaches for the network at all."""
+    def forbidden(path):
+        raise AssertionError("the console fetched %s over HTTP" % path)
+    monkeypatch.setattr(rd, "_get", forbidden)
+
+
+def test_the_console_takes_its_state_from_the_feed(monkeypatch):
+    _no_http(monkeypatch)
+    monkeypatch.setattr(rd, "FEED", _StubFeed(state={
+        "mood": "alarmed", "ring_state": "alarm", "oled_mode": "ripperdoc",
+        "ripperdoc_page": "power", "condition": "hurts",
+        "power": {"3V3_SYS_V": 3.31, "throttled": 0},
+    }))
     st = rd.body_state()
     assert st["mood"] == "alarmed" and st["ring_state"] == "alarm"
-    assert st["ripperdoc_page"] == "snr", "must report the BODY's page"
-    assert st["power"]["3V3_SYS_V"] == 3.331, "power comes from the body too"
-
     line = rd.fetch_sense()
-    assert "alarmed" in line and "snr" in line and "SOLID" in line
+    assert "alarmed" in line and "power" in line
+    assert "3.31V" in line, "power must come off the feed, not off local hardware"
 
 
-def test_ring_twin_comes_over_the_wire(monkeypatch):
-    """The ring bytes must be fetched, and decoded as HEX.
-
-    /twin sends the ring hex-encoded and the face base64. Assuming base64 for
-    both produced a 108-byte ring frame from a 72-byte one — no error, just
-    wrong pixels, which reads as a hardware fault. The test asserts the
-    encoding, not just the round-trip, because a round-trip test written with
-    the same wrong assumption passes happily."""
-    asked = []
-    frame = bytes(range(72))
-
-    def fake_get(path):
-        asked.append(path)
-        return {"ring": frame.hex(), "face": "x"}
-
-    monkeypatch.setattr(rd, "_get", fake_get)
-    tw = fake_get("/twin")
-    raw = bytes.fromhex(tw["ring"])
-    assert asked == ["/twin"]
-    assert len(raw) == 72, "the ring twin must round-trip"
-    try:
-        bad = base64.b64decode(tw["ring"])
-    except Exception:
-        bad = b""
-    assert len(bad) != 72, ("if base64 happened to give 72 bytes this test "
-                            "could not tell the two encodings apart")
+def test_a_silent_feed_says_so_rather_than_showing_the_last_picture(monkeypatch):
+    """A console that shows its last reading forever is the ghost temperature
+    with a different coat on."""
+    _no_http(monkeypatch)
+    monkeypatch.setattr(rd, "FEED", _StubFeed(state={"mood": "calm"},
+                                              age=rd._FEED_STALE_S + 1))
+    line = rd.fetch_sense()
+    assert "NO FEED" in line and "calm" not in line
 
 
-def test_an_unreachable_body_says_so(monkeypatch):
-    def dead(path):
-        raise OSError("connection refused")
-
-    monkeypatch.setattr(rd, "_get", dead)
-    assert "unreachable" in rd.fetch_sense()
-
-
-def test_frag_state_comes_over_the_wire_not_off_local_disk(monkeypatch):
-    """The vault lives on the loa: /var/lib/fragment/status.json exists there
-    and nowhere else. The console renders the real renderer locally, so reading
-    that path from dixie drew GONE over a sealed vault (found live 2026-09-12).
-    """
-    sealed = {"sealed": True, "entries": 3, "access_count": 6,
-              "hash": "58476845447ac61d", "marker": None}
-
-    def local_read_is_forbidden():
-        raise AssertionError("console read a BODY-local status file")
-
-    monkeypatch.setattr(rd.face, "_fragment_status", local_read_is_forbidden)
-    monkeypatch.setattr(rd, "_get", lambda path: {
-        "ring": "", "face": "", "status": {"frag": sealed, "page": "frag"},
-    })
-
-    assert rd.body_state()["frag"]["sealed"] is True
+def test_a_schema_mismatch_is_reported_not_guessed_at(monkeypatch):
+    """A publisher and a subscriber that disagree must fail loudly. Guessing is
+    how a hex frame decoded as base64 drew twelve wrong pixels and looked like a
+    hardware fault."""
+    _no_http(monkeypatch)
+    monkeypatch.setattr(rd, "FEED",
+                        _StubFeed(error="schema v9 != v%d" % topic.SCHEMA_VERSION))
+    line = rd.fetch_sense()
+    assert "FEED ERROR" in line and "schema" in line
 
 
-def test_frag_page_draws_sealed_from_body_state(monkeypatch):
-    """The FRAG page must render the BODY's seal state, not this machine's."""
-    import loa.face as oled
+def test_the_ring_frame_is_decoded_as_hex(monkeypatch):
+    """/twin sent the ring hex-encoded; the feed sends raw bytes. Either way it
+    is never base64 — that assumption is what drew twelve wrong LEDs."""
+    ring = bytes([0, 0, 216] * 24)
+    monkeypatch.setattr(rd, "FEED", _StubFeed(ring_bytes=ring))
+    _face, ring_b = rd.feed().frames()
+    assert ring_b == ring and len(ring_b) == 72
+    assert "rgb(0,0,216)" in rd.ring_art_bytes(ring_b)
+    # and the old hex shape still round-trips for anything left using it
+    assert bytes.fromhex(ring.hex()) == ring
+    assert base64.b64decode(base64.b64encode(ring)) == ring
 
-    def local_read_is_forbidden():
-        raise AssertionError("FRAG page read a BODY-local status file")
 
-    monkeypatch.setattr(oled, "_fragment_status", local_read_is_forbidden)
+def test_the_frag_page_draws_the_bodys_seal_from_the_feed(monkeypatch):
+    """The vault lives on the loa. The console renders the real page locally, so
+    without the seal coming off the feed it drew GONE over a sealed vault."""
     drawn = []
-    monkeypatch.setattr(oled.amiga, "draw",
-                        lambda frame, text, x, y, size=8: drawn.append(text))
-
+    monkeypatch.setattr(face.amiga, "draw",
+                        lambda frame, text, x, y, size=8, **kw: drawn.append(text))
     st = {"ripperdoc_page": "frag",
           "frag": {"sealed": True, "entries": 3, "access_count": 6}}
-    oled.Ripperdoc().draw_state(oled.Frame(), 0.0, st)
-
+    face.Ripperdoc().draw_state(face.Frame(), 0.0, st)
     assert "SEALED" in drawn and "GONE" not in drawn
     assert "N003" in drawn and "A006" in drawn
-
-
-def test_frag_page_still_falls_back_to_the_file_on_the_body(monkeypatch):
-    """On the Pi the face daemon carries no `frag` key — it owns the file."""
-    import loa.face as oled
-
-    monkeypatch.setattr(oled, "_fragment_status",
-                        lambda: {"sealed": True, "entries": 3,
-                                 "access_count": 6})
-    drawn = []
-    monkeypatch.setattr(oled.amiga, "draw",
-                        lambda frame, text, x, y, size=8: drawn.append(text))
-
-    oled.Ripperdoc().draw_state(oled.Frame(), 0.0, {"ripperdoc_page": "frag"})
-
-    assert "SEALED" in drawn and "GONE" not in drawn
-
-
-def test_pain_page_reads_the_body_sweep(monkeypatch):
-    """PAIN must not read NO SWEEP off an off-body /dev/shm path."""
-    import loa.face as oled
-
-    def local_read_is_forbidden():
-        raise AssertionError("PAIN page read a BODY-local faults file")
-
-    monkeypatch.setattr(oled, "_faults_status", local_read_is_forbidden)
-    drawn = []
-    monkeypatch.setattr(oled.amiga, "draw",
-                        lambda frame, text, x, y, size=8: drawn.append(text))
-
-    st = {"ripperdoc_page": "fault",
-          "faults": {"ts": 0.0, "faults": 0, "warns": 1, "rows": []}}
-    oled.Ripperdoc().draw_state(oled.Frame(), 0.0, st)
-
-    assert "NO SWEEP" not in drawn and any("NIGGLE" in d for d in drawn)
-

@@ -38,7 +38,11 @@ from .pb import loa_pb2 as pb
 
 #: Bump on ANY change to proto/loa.proto. Publisher and subscriber check it, so
 #: a body and a console that disagree fail on arrival instead of misreading.
-SCHEMA_VERSION = 1
+#: v2: State fields gained explicit presence so a daemon can publish a PARTIAL
+#: reading without clobbering the fields it does not own.
+#: v3: State carries power/faults/frag so a consumer never has to reach back
+#: over HTTP for what the feed should already be telling it.
+SCHEMA_VERSION = 3
 
 #: Where consumers subscribe (the cortex binds this; it must be reachable from
 #: dixie, so it is the LAN interface, not loopback).
@@ -89,6 +93,39 @@ def event_to_dict(msg) -> dict:
     Uses dataclass-style field names, not the default camelCase, so a stored
     record and the code that reads it agree about what a field is called."""
     return json.loads(message_to_json(msg))
+
+
+def state_fields_present(msg: pb.State) -> dict:
+    """Only the fields this message actually carries.
+
+    Every scalar State field is `optional`, so presence is the difference
+    between "I measured false" and "I am not talking about that". Merging a
+    partial reading without this test is how a motion daemon clobbers the mood.
+    Maps and repeated fields have no presence — empty means not carried.
+    """
+    out = {}
+    for field in msg.DESCRIPTOR.fields:
+        value = getattr(msg, field.name)
+        is_map = (field.message_type is not None
+                  and field.message_type.GetOptions().map_entry)
+        if is_map:
+            if len(value):
+                out[field.name] = dict(value)
+            continue
+        # protobuf 7 dropped FieldDescriptor.label; is_repeated replaced it.
+        # Getting this wrong threw on EVERY message — and the ingest caught it
+        # and slept, so the feed was silently empty. Never swallow silently.
+        try:
+            repeated = field.is_repeated
+        except AttributeError:                                  # pragma: no cover
+            repeated = field.label == field.LABEL_REPEATED
+        if repeated:
+            if len(value):
+                out[field.name] = list(value)
+            continue
+        if msg.HasField(field.name):
+            out[field.name] = value
+    return out
 
 
 def state_to_message(state: dict) -> pb.State:

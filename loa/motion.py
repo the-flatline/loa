@@ -14,13 +14,17 @@ import time
 from . import config
 from . import cortex
 from .sense import (DEFAULT_COOLDOWN, DEFAULT_GPIO, SensePoller, pinctrl_reader,
-                    set_input)
+                    set_input, use_topic)
 
 
 def main():
     cfg = config.load()
     gpio = int(cfg.get("sense_gpio", DEFAULT_GPIO))
     cooldown = float(cfg.get("sense_cooldown", DEFAULT_COOLDOWN))
+    # readings go OUT on the topic, not into the database: five processes
+    # writing one sqlite file is a race, and the cortex cannot publish what it
+    # never sees.
+    use_topic()
 
     # the N counter is per-boot: a rebooted body starts at zero
     cortex.set_state({"sense_count": 0})

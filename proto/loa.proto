@@ -28,36 +28,53 @@ message Envelope {
   }
 }
 
-// The body's live state. Scalar only, by construction: no bytes, so nothing
-// here can be silently base64'd on the way to a record.
+// The body's live state.
+//
+// EVERY field is `optional` on purpose. A daemon publishes only what it
+// measured: without explicit presence, a motion reading carrying
+// pir_high=false is indistinguishable from a message that never mentioned the
+// PIR, and a partial update would silently clobber the fields it did not own
+// with zero values. Presence is what makes "I have a reading for this" sayable.
 message State {
-  string mood = 1;
-  double mood_set_at = 2;
-  string ring_state = 3;
-  string pending_event = 4;
+  optional string mood = 1;
+  optional double mood_set_at = 2;
+  optional string ring_state = 3;
+  optional string pending_event = 4;
 
-  string oled_mode = 5;
-  string oled_text = 6;
-  bool oled_dim = 7;
+  optional string oled_mode = 5;
+  optional string oled_text = 6;
+  optional bool oled_dim = 7;
 
-  bool ripperdoc = 8;
-  string ripperdoc_page = 9;
-  string condition = 10;
+  optional bool ripperdoc = 8;
+  optional string ripperdoc_page = 9;
+  optional string condition = 10;
 
-  bool pir_high = 11;
-  uint32 pir_count = 12;
-  double pir_last_ts = 13;
-  double pir_last_hold = 14;
+  optional bool pir_high = 11;
+  optional uint32 pir_count = 12;
+  optional double pir_last_ts = 13;
+  optional double pir_last_hold = 14;
+  optional double pir_on_ts = 15;
 
-  optional double snr_cm = 15;
-  uint32 snr_count = 16;
+  optional double snr_cm = 16;
+  optional uint32 snr_count = 17;
 
-  optional double temp_c = 17;
-  optional double hum_pct = 18;
-  double temp_ts = 19;
+  optional double temp_c = 18;
+  optional double hum_pct = 19;
+  optional double temp_ts = 20;
 
-  optional double pressure_hpa = 20;
-  double baro_ts = 21;
+  optional double pressure_hpa = 21;
+  optional double baro_temp_c = 22;
+  optional double baro_ts = 23;
+
+  optional double sense_ts = 24;
+  optional uint32 sense_count = 25;
+
+  // What the console needs but the state row does not carry. These travel on
+  // the feed so a consumer never has to reach back over HTTP for them — that
+  // reach-back is what made a "pub/sub" console secretly a poller.
+  map<string, double> power = 26;   // PMIC rails as read on the BODY
+  repeated string faults = 27;      // "level|label" per row, worst first
+  map<string, string> frag = 28;    // the vault's seal state, as the body sees it
 }
 
 // A frame moved. RAW bytes — protobuf carries them, so no hex, no base64, and

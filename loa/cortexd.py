@@ -304,50 +304,16 @@ def ripperdoc(req: RipperdocRequest):
 
 @app.get("/twin")
 def twin():
-    """The loa frame bus for web consumers: ring + face + status in one hit.
+    """GONE. Frames travel on the topic now; this is a tombstone, not a door.
 
-    Reads the RAM topics; returns compact payloads (ring hex, face base64).
-    The site relay on dixie polls this and serves the browser — loa is never
-    exposed to the tunnel.
+    Left as a 410 rather than deleted outright: anything still polling it is a
+    consumer that never got moved onto the feed, and it deserves to be told
+    that instead of quietly getting nothing and looking broken.
     """
-    import base64
-    import os
-    ring = None
-    face_b64 = None
-    try:
-        with open("/dev/shm/loa-ring.bin", "rb") as f:
-            ring = f.read(72).hex()
-    except OSError:
-        pass
-    try:
-        with open("/dev/shm/loa-oled.bin", "rb") as f:
-            face_b64 = base64.b64encode(f.read(1024)).decode()
-    except OSError:
-        pass
-    st = cortex.get_state()
-    return {
-        "ts": time.time(),
-        "ring": ring,
-        "face": face_b64,
-        "status": {
-            "mood": st["mood"],
-            "ring_state": st["ring_state"],
-            "pending_event": st["pending_event"],
-            "oled_mode": st["oled_mode"],
-            "ripperdoc": st["ripperdoc"],
-            "page": st["ripperdoc_page"],
-            "pir_high": st["pir_high"],
-            "sense_count": st["sense_count"],
-            "pir_last_hold": st["pir_last_hold"],
-            "snr_cm": st["snr_cm"],
-            "temp_c": st["temp_c"],
-            "hum_pct": st["hum_pct"],
-            "pressure_hpa": st["pressure_hpa"],
-            "baro_trend": cortex.baro_trend(),
-            "baro_series": _baro_series(),
-            "frag": face._fragment_status(),
-        },
-    }
+    raise HTTPException(
+        status_code=410,
+        detail="gone — subscribe to the loa topic for frames and state "
+               "(loa/topic.py; watch it with loa-topic-tail)")
 
 
 # ---------------------------------------------------------------------------
@@ -401,6 +367,40 @@ def fragment_read(x_fragment_token: str | None = Header(default=None)):
 _PUB = {}
 
 
+def _attach_body_readouts(msg):
+    """Add the readings that exist only on the body: PMIC, fault sweep, seal.
+
+    Attached at PUBLISH time rather than stored, because they are hardware and
+    they change on their own schedule — and their change is exactly what makes
+    the publish-on-change comparison notice a rail moving.
+
+    Each block is independently guarded: a missing sensor or an unreadable vault
+    must not stop the state going out. Say less, never go silent.
+    """
+    try:
+        for k, v in (face.power_status() or {}).items():
+            if isinstance(v, (int, float)):
+                msg.power[str(k)] = float(v)
+    except Exception:                                           # noqa: BLE001
+        pass
+    try:
+        for row in (fault.status() or {}).get("rows") or []:
+            msg.faults.append("%s|%s" % (row.get("level", ""),
+                                         row.get("face") or row.get("code") or ""))
+    except Exception:                                           # noqa: BLE001
+        pass
+    try:
+        msg.condition = fault.condition()
+    except Exception:                                           # noqa: BLE001
+        pass
+    try:
+        for k, v in (face.seal_state() or {}).items():
+            msg.frag[str(k)] = str(v)
+    except Exception:                                           # noqa: BLE001
+        pass
+    return msg
+
+
 def start_publishing(endpoint=None):
     """Publish state changes and events to the topic. Called once at startup.
 
@@ -429,7 +429,7 @@ def start_publishing(endpoint=None):
         pub = slot["sock"]
         try:
             if kind == "state":
-                msg = topic_mod.state_to_message(payload)
+                msg = _attach_body_readouts(topic_mod.state_to_message(payload))
                 raw = msg.SerializeToString()
                 if raw == slot["last"]:
                     return
@@ -447,11 +447,61 @@ def start_publishing(endpoint=None):
     return cortex.on_publish(hook)
 
 
+def start_ingesting(endpoint=None):
+    """Take readings off the topic and assemble the body's state.
+
+    This is the other half of the cortex being the one publisher. The daemons
+    PUBLISH their readings; this merges them; the merged state goes back out on
+    the topic. Without it the feed carried only what the HTTP door changed and
+    nothing at all from the senses.
+
+    Merging is by PRESENCE: a reading carries only the fields its daemon
+    measured, so a motion event cannot clobber the mood with a zero value.
+    """
+    from . import topic as topic_mod
+    import threading
+
+    rx = topic_mod.Receiver(**({"endpoint": endpoint} if endpoint else {}))
+    stop = threading.Event()
+
+    def loop():
+        while not stop.is_set():
+            try:
+                for env in rx.drain(250):
+                    which = env.WhichOneof("body")
+                    if which == "state":
+                        fields = topic_mod.state_fields_present(env.state)
+                        if fields:
+                            cortex.set_state(fields)   # republished by the hook
+                    elif which == "event":
+                        whole = topic_mod.event_to_dict(env.event)
+                        cortex.log_event(env.event.kind,
+                                         whole.get("detail") or {},
+                                         ts=env.event.ts)
+            except Exception as e:                              # noqa: BLE001
+                # Loud, once per failure, on stderr (the journal on the body).
+                # A silent ingest is a silent feed, and a silent feed is what
+                # had Divv shouting at a console that was never on pub/sub.
+                import sys
+                print("loa-cortex: ingest failed: %s: %s"
+                      % (type(e).__name__, e), file=sys.stderr, flush=True)
+                time.sleep(0.5)         # a bad message must not kill the ingest
+        rx.close()
+
+    threading.Thread(target=loop, daemon=True).start()
+    # The stop handle is returned rather than hidden: a test that cannot stop
+    # the ingest leaves a thread holding a database connection into the next
+    # test, which is exactly how a suite starts lying.
+    return rx, stop.set
+
+
 def main():
     import uvicorn
     host = os.environ.get("LOA_API_BIND", "0.0.0.0")
     port = int(os.environ.get("LOA_API_PORT", DEFAULT_PORT))
     start_publishing(os.environ.get("LOA_TOPIC_ENDPOINT"))
+    if os.environ.get("LOA_INGEST", "on").lower() not in ("0", "false", "no", "off"):
+        start_ingesting(os.environ.get("LOA_INGEST_ENDPOINT"))
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
 

@@ -45,6 +45,56 @@ BARO_MEAS_WAIT = 0.005      # oss=0: 4.5ms per datasheet; 5ms covers it
 _HI = re.compile(r"\bhi\b")
 
 
+# -- the wire --------------------------------------------------------------- #
+# A reading is PUBLISHED, not written. The daemons are separate processes that
+# once wrote sqlite directly — which meant the cortex's publisher could not see
+# their changes, and the feed carried nothing from the senses at all. Each
+# daemon now claims the topic at startup and its readings go out on it.
+#
+# The drivers stay ignorant of the wire: they call publish(), and how it leaves
+# is whoever claimed it.
+_PUBLISH = None
+_PUBLISH_EVENT = None
+
+
+def use_topic(endpoint=None):
+    """Send readings over the topic instead of into the database.
+
+    Called once at daemon startup. Returns the Sender so a daemon that wants to
+    publish frames as well can hold on to it.
+    """
+    from .topic import Sender
+    global _PUBLISH, _PUBLISH_EVENT
+    sock = Sender(**({"endpoint": endpoint} if endpoint else {}))
+
+    def _state(fields):
+        sock.send_state(fields)
+
+    def _event(ts, kind, detail):
+        sock.send_event(ts, kind, detail)
+
+    _PUBLISH, _PUBLISH_EVENT = _state, _event
+    return sock
+
+
+def publish(fields):
+    """A reading. On the topic when a daemon has claimed it, else the database.
+
+    The fallback is not dead code: the bench runs these drivers directly with a
+    single process and no topic, and that must keep working."""
+    if _PUBLISH is not None:
+        _PUBLISH(fields)
+    else:
+        cortex.set_state(fields)
+
+
+def publish_event(kind, detail=None, ts=None):
+    if _PUBLISH_EVENT is not None:
+        _PUBLISH_EVENT(time.time() if ts is None else ts, kind, detail)
+    else:
+        cortex.log_event(kind, detail, ts=ts)
+
+
 def pinctrl_reader(gpio):
     """Read a GPIO level via pinctrl. True for hi, False for lo, None when
     the pin isn't reporting a level (unclaimed — caller re-asserts input)."""
@@ -88,8 +138,8 @@ class SensePoller:
         now = time.time()
         st = cortex.get_state()
         n = (st.get("sense_count") or 0) + 1
-        cortex.set_state({"sense_ts": now, "sense_count": n})
-        cortex.log_event("sense", {"kind": "pir", "gpio": self.gpio,
+        publish({"sense_ts": now, "sense_count": n})
+        publish_event("sense", {"kind": "pir", "gpio": self.gpio,
                                    "action": "motion", "count": n,
                                    "cooldown": self.cooldown})
         moods.apply_ring(cortex, "scan")
@@ -103,12 +153,12 @@ class SensePoller:
         now = time.time()
         if level != self._last:
             if level:
-                cortex.set_state({"pir_high": 1, "pir_on_ts": now})
+                publish({"pir_high": 1, "pir_on_ts": now})
             else:
                 st = cortex.get_state()
                 on_ts = st.get("pir_on_ts")
                 hold = 0.0 if on_ts is None else now - on_ts
-                cortex.set_state({"pir_high": 0, "pir_last_hold": hold,
+                publish({"pir_high": 0, "pir_last_hold": hold,
                                   "pir_on_ts": None})
         if level:
             self._pending = 1 if not self._last else self._pending + 1
@@ -191,7 +241,7 @@ class Sonar:
             return
         now = time.time()
         n = (cortex.get_state().get("snr_count") or 0) + 1
-        cortex.set_state({"snr_cm": cm, "snr_ts": now, "snr_count": n})
+        publish({"snr_cm": cm, "snr_ts": now, "snr_count": n})
 
     def run(self):
         while not self._stop.is_set():
@@ -332,7 +382,7 @@ class DHT11:
         temp, hum = v
         now = time.time()
         n = (cortex.get_state().get("temp_count") or 0) + 1
-        cortex.set_state({"temp_c": temp, "hum_pct": hum,
+        publish({"temp_c": temp, "hum_pct": hum,
                           "temp_ts": now, "temp_count": n})
 
     def run(self):
@@ -450,7 +500,7 @@ class BMP180:
         temp_c, pa = v
         now = time.time()
         n = (cortex.get_state().get("baro_count") or 0) + 1
-        cortex.set_state({"pressure_hpa": pa / 100.0, "baro_temp_c": temp_c,
+        publish({"pressure_hpa": pa / 100.0, "baro_temp_c": temp_c,
                           "baro_ts": now, "baro_count": n})
         cortex.baro_sample(pa / 100.0, temp_c, now)
 
@@ -479,11 +529,11 @@ def main():
     baro_addr = int(str(cfg.get("sense_baro_addr", DEFAULT_BARO_ADDR)), 0)
     baro_period = float(cfg.get("sense_baro_period", DEFAULT_BARO_PERIOD))
     # the N counter is per-boot: a rebooted body starts at zero
-    cortex.set_state({"sense_count": 0, "snr_count": 0})
+    publish({"sense_count": 0, "snr_count": 0})
     if not snr_enabled:
         # a disabled sonar is silent: no pings, no chirps, no reads
-        cortex.set_state({"snr_cm": None, "snr_ts": None})
-    cortex.log_event("boot", {"svc": "sense", "gpio": gpio,
+        publish({"snr_cm": None, "snr_ts": None})
+    publish_event("boot", {"svc": "sense", "gpio": gpio,
                               "cooldown": cooldown, "trig": trig,
                               "echo": echo, "snr_period": period,
                               "snr_enabled": snr_enabled,
@@ -497,7 +547,7 @@ def main():
     # survive a reboot (jumper fiddling can leave the module latched high)
     level = pinctrl_reader(gpio)
     if level is not None:
-        cortex.set_state({"pir_high": int(level),
+        publish({"pir_high": int(level),
                           "pir_on_ts": time.time() if level else None})
     snr = None
     if snr_enabled:
