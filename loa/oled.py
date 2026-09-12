@@ -741,36 +741,42 @@ class Ripperdoc:
         amiga.draw(frame, f"A{access:03d}", 40, 32, size=8)
 
     def _page_power(self, frame, t, st):
-        """The bench's power truth — the page that would have saved an
-        evening. The 5V input and the 3V3 rail it feeds, off the PMIC, plus
-        the two flags, spelled out.
+        """The bench's power truth. The 5V input and the 3V3 rail it feeds,
+        off the PMIC, plus what each is drawing.
 
-        UNDERVOLT lit = the 5V INPUT is sagging RIGHT NOW (throttled bit 0).
-        THROTTLED lit = the SoC is throttling RIGHT NOW (bit 2) — for the
-        sagging input or for heat, either cause. A clean bench is both dark
-        with 3V3 at 3.3. The sticky 'happened since boot' bits stay in
-        /state (power.throttled): this page answers 'is it happening NOW'.
+        UV lit = the 5V input is sagging RIGHT NOW (throttled bit 0).
+        THR lit = the SoC is throttling RIGHT NOW (bit 2) — for the sagging
+        input or for heat, either cause. A clean bench is both dark with 3V3
+        at 3.3. The sticky 'happened since boot' bits stay in /state
+        (power.throttled): this page answers 'is it happening NOW'.
+
+        Labels: 5V = the input (volts only — the PMIC has no EXT5V_A),
+        3V3 = the rail, <label>I = that rail's current draw. Five lines at
+        8px pitch: glyphs are 7 rows tall, so 8 leaves a 1px gutter and the
+        whole set clears 64px with the flags intact.
         """
         amiga.draw(frame, "PWR", 2, 1, size=8)
         amiga.draw(frame, "6/6", 99, 1, size=8)
         p = power_status()
         flags = p.get("throttled")
-        self._indicator(frame, 2, 10, "UNDERVOLT",
+        self._indicator(frame, 2, 11, "UV",
                         bool(flags is not None and flags & 0x1))
-        self._indicator(frame, 2, 23, "THROTTLED",
+        self._indicator(frame, 40, 11, "THR",
                         bool(flags is not None and flags & 0x4))
-        self._rail(frame, 2, 38, "5V", p.get("EXT5V_V"), 3, "V")
-        self._rail(frame, 2, 47, "3V3", p.get("3V3_SYS_V"), 3, "V")
-        self._rail(frame, 2, 56, "AMPS", p.get("3V3_SYS_A"), 3, "A")
+        self._rail(frame, 2, 24, "5V", p.get("EXT5V_V"), 3, "V")
+        self._rail(frame, 2, 32, "3V3", p.get("3V3_SYS_V"), 3, "V")
+        self._rail(frame, 2, 40, "3V3I", p.get("3V3_SYS_A"), 3, "A")
+        self._rail(frame, 2, 48, "CORE", p.get("VDD_CORE_V"), 3, "V")
+        self._rail(frame, 2, 56, "COREI", p.get("VDD_CORE_A"), 3, "A")
 
     def _rail(self, frame, x, y, label, val, dp, unit):
         """One telemetry line. Dashes when the rail can't be read — off-Pi,
         or vcgencmd missing. Never invents a number.
         """
         if val is None:
-            s = f"{label:<4} --"
+            s = f"{label:<5} --"
         else:
-            s = f"{label:<4} {val:.{dp}f}{unit}"
+            s = f"{label:<5} {val:.{dp}f}{unit}"
         amiga.draw(frame, s, x, y, size=8)
 
     def _lock(self, frame, x, y):
