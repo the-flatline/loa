@@ -637,40 +637,44 @@ class Ripperdoc:
         temp = st.get("temp_c")
         hum = st.get("hum_pct")
         if temp is None:
-            amiga.draw(frame, "--.-C --%", 2, 34, size=8)
+            amiga.draw(frame, "--.-C", 2, 52, size=8)
+            amiga.draw(frame, "--%", 110, 52, size=8)
             self._gauge(frame, 2, 14, 0.0)
             return
         lo, hi = 5.0, 40.0
         frac = max(0.0, min(1.0, (temp - lo) / (hi - lo)))
         self._gauge(frame, 2, 14, frac)
-        amiga.draw(frame, f"{temp:4.1f}C", 2, 34, size=8)
+        amiga.draw(frame, f"{lo:.0f}C", 2, 34, size=8)
+        amiga.draw(frame, f"{hi:.0f}C", 98, 34, size=8)
+        amiga.draw(frame, f"{temp:4.1f}C", 2, 52, size=8)
         if hum is not None:
-            amiga.draw(frame, f"{hum:3.0f}%", 52, 34, size=8)
-        amiga.draw(frame, f"{lo:.0f}C", 2, 48, size=8)
-        amiga.draw(frame, f"{hi:.0f}C", 98, 48, size=8)
+            amiga.draw(frame, f"{hum:3.0f}%", 110, 52, size=8)
 
     def _gauge(self, frame, x, y, frac):
-        """Horizontal bulb thermometer — the original solid style: filled
-        rounded bulb at (x,y), stem tube to the right, mercury fill grows
-        from the bulb toward the range end. frac 0..1 across the stem.
+        """Horizontal bulb thermometer — the reference icon: solid filled
+        round bulb, solid stem, hollow end for the unfilled range. One
+        continuous silhouette — no outlines over the filled portion, no
+        gaps between bulb and stem (the stem overlaps the bulb's shoulder).
+        Stem height = half the bulb diameter. frac 0..1 along the stem.
         """
-        bw, bh = 8, 14
-        # bulb — filled block, rounded top corners
-        for yy in range(y + 1, y + bh):
-            for xx in range(x + 1, x + bw - 1):
-                if yy == y + 1 and (xx == x + 1 or xx == x + bw - 2):
-                    continue
-                frame.px(xx, yy)
-        # stem tube
-        sx, sy, sw, sh = x + bw - 1, y + 3, 90, 8
+        # bulb — solid filled circle
+        r = 8
+        cx, cy = x + 8, y + 7
+        for yy in range(cy - r, cy + r + 1):
+            for xx in range(cx - r, cx + r + 1):
+                if (xx - cx) ** 2 + (yy - cy) ** 2 <= r * r:
+                    frame.px(xx, yy)
+        # stem — frame drawn full length, but the fill paints over it in
+        # the filled stretch (same green, invisible seam): the bar reads
+        # solid from the bulb to the fill level, hollow beyond it.
+        sx, sy, sw, sh = x + 12, y + 3, 90, 8
         frame.line(sx, sy, sx + sw, sy)             # top
         frame.line(sx, sy + sh, sx + sw, sy + sh)   # bottom
-        frame.line(sx, sy, sx, sy + sh)             # left (meets the bulb)
         frame.line(sx + sw, sy, sx + sw, sy + sh)   # right cap
-        fill = int(frac * (sw - 2))
+        fill = int(frac * sw)
         if fill > 0:
             for yy in range(sy + 1, sy + sh):
-                for xx in range(sx + 1, sx + 1 + fill):
+                for xx in range(sx, sx + fill):
                     frame.px(xx, yy)
 
     def _page_frag(self, frame, t, st):
