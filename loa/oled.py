@@ -637,46 +637,52 @@ class Ripperdoc:
         temp = st.get("temp_c")
         hum = st.get("hum_pct")
         if temp is None:
-            amiga.draw(frame, "--.-C", 62, 22, size=8)
-            self._gauge(frame, 8, 28, 0.0)
+            amiga.draw(frame, "--.-C --%", 2, 52, size=8)
+            self._gauge(frame, 22, 30, 0.0)
             return
         lo, hi = 5.0, 40.0
         frac = max(0.0, min(1.0, (temp - lo) / (hi - lo)))
-        self._gauge(frame, 8, 28, frac)
-        amiga.draw(frame, f"{temp:4.1f}C", 62, 22, size=8)
-        if hum is not None:
-            amiga.draw(frame, f"{hum:3.0f}%RH", 62, 33, size=8)
-        amiga.draw(frame, f"{lo:.0f}C", 2, 42, size=8)
-        amiga.draw(frame, f"{hi:.0f}C", 48, 42, size=8)
+        self._gauge(frame, 22, 30, frac)
+        amiga.draw(frame, f"{temp:4.1f}C {hum:3.0f}%", 2, 52, size=8)
 
     def _gauge(self, frame, x, y, frac):
-        """Horizontal bulb thermometer — the reference icon laid sideways:
-        1px tube walls, hollow interior, mercury inside, rounded right cap,
-        graduation ticks above. frac 0..1 along the tube.
+        """Horizontal thermometer — the sideways reference icon, 1:1:
+        concentric bulb (outer ring, white gap, solid core), capsule tube
+        with 2px walls, mercury bar at half interior height with a flat
+        right cut, ticks hanging from the top wall in the empty stretch,
+        semicircular end cap. frac 0..1 along the tube.
         """
-        r = 6
-        cx, cy = x, y
-        for yy in range(cy - r, cy + r + 1):
-            for xx in range(cx - r, cx + r + 1):
-                if (xx - cx) ** 2 + (yy - cy) ** 2 <= r ** 2:
+        r = 19
+        # bulb — concentric: outer ring band, white gap, solid core
+        for yy in range(y - r, y + r + 1):
+            for xx in range(x - r, x + r + 1):
+                d2 = (xx - x) ** 2 + (yy - y) ** 2
+                if d2 <= r * r and d2 >= (r - 3) ** 2:   # ring stroke
                     frame.px(xx, yy)
-        # tube — from the bulb's right edge, short and thick like the icon
-        sx, sy = cx + r, y - 3
-        sw, sh = 45, 7
-        frame.line(sx, sy, sx + sw, sy)                # top wall
-        frame.line(sx, sy + sh, sx + sw, sy + sh)      # bottom wall
-        frame.line(sx + sw, sy + 1, sx + sw, sy + sh - 1)  # right cap
-        frame.px(sx + sw + 1, sy + 2)                  # cap rounding
-        frame.px(sx + sw + 1, sy + sh - 2)
-        # ticks above the tube
+                elif d2 <= 13 * 13:                       # solid core
+                    frame.px(xx, yy)
+        # tube capsule — 2px walls + semicircular cap
+        sx, sy = x + r, y - 9
+        sw = 44
+        frame.line(sx, sy, sx + sw, sy)               # top wall outer
+        frame.line(sx, sy + 1, sx + sw, sy + 1)       # top wall inner
+        frame.line(sx, sy + 16, sx + sw, sy + 16)     # bottom wall inner
+        frame.line(sx, sy + 17, sx + sw, sy + 17)     # bottom wall outer
+        cx, cy = sx + sw, y
+        for yy in range(cy - 8, cy + 9):
+            for xx in range(cx, cx + 9):
+                d2 = (xx - cx) ** 2 + (yy - cy) ** 2
+                if d2 <= 64 and d2 >= 36:             # cap band 6..8
+                    frame.px(xx, yy)
+        # ticks — hang from the top wall in the empty stretch
         for i in range(4):
-            tx = sx + 6 + i * 10
-            frame.px(tx, sy - 1)
-            frame.px(tx, sy - 2)
-        # mercury — inside the walls, from the bulb to the fill level
-        fill = int(frac * (sw - 2))
+            tx = sx + 25 + i * 5
+            for dy in range(9):
+                frame.px(tx, sy + 2 + dy)
+        # mercury — solid bar, half interior height, flat right cut
+        fill = int(frac * (sw - 4))
         if fill > 0:
-            for yy in range(sy + 1, sy + sh):
+            for yy in range(y - 4, y + 5):
                 for xx in range(sx + 1, sx + 1 + fill):
                     frame.px(xx, yy)
 
