@@ -37,6 +37,7 @@ SCRIPTS = ("loa-api", "loa-oled", "loa-presence", "loa-sense", "ripperdoc")
 # Who should hold which SPI bus. Two writers on one bus is the classic
 # ghost-in-the-panel fault.
 BUS_OWNERS = {"/dev/spidev0.0": "loa-oled", "/dev/spidev1.0": "loa-presence"}
+BUS_LABEL = {"/dev/spidev0.0": "FACE", "/dev/spidev1.0": "RING"}
 
 DISK_WARN_PCT = 85
 
@@ -70,9 +71,11 @@ def _check_units(rows):
             })
         elif state == "inactive" and unit == "loa-presence":
             exists = os.path.exists("/etc/systemd/system/loa-presence.service")
+            # "OFF" would overclaim: this daemon is what DRIVES the ring, and
+            # losing it says nothing about the hardware. Say the honest thing.
             rows.append({
                 "level": "warn",
-                "code": "RING OFF",
+                "code": "RING STOPPED",
                 "text": ("loa-presence not running — unit file "
                          + ("present but stopped" if exists
                             else "MISSING from /etc/systemd/system")),
@@ -115,9 +118,15 @@ def _check_buses(rows):
                          "text": f"{bus} held by something else: "
                                  + " | ".join(h.strip() for h in holders)})
         else:
+            # spidev is WRITE-ONLY — no readback exists on a WS2812 chain or an
+            # SH1106 panel, so driving a lit device and driving a wire into
+            # thin air look identical on the bus. Name it for what it is.
+            label = BUS_LABEL.get(bus, bus.split("/")[-1][-3:].upper())
             rows.append({"level": "fault",
-                         "code": bus.split("/")[-1][-3:].upper() + " FREE",
-                         "text": f"nothing holds {bus} — expected {expected}"})
+                         "code": f"{label} NODRV",
+                         "text": f"nothing is driving {bus} — expected "
+                                 f"{expected}. Write-only bus: this says "
+                                 f"nothing about whether hardware is attached."})
 
 
 def _temp_c():

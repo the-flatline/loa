@@ -68,6 +68,14 @@ def test_every_live_throttle_condition_is_reported():
         f._run = orig
 
 
+def test_bus_labels_cover_every_expected_bus():
+    """Every bus we police has a short name for it — an unnamed fault is one
+    nobody reads, and `1.0 FREE` named nothing."""
+    assert set(faults.BUS_LABEL) == set(faults.BUS_OWNERS)
+    for label in faults.BUS_LABEL.values():
+        assert len(f"{label} NODRV") <= 14      # the face draws 14 chars
+
+
 def test_quiet_format_prints_only_faults():
     rep = {"ts": 0.0, "boot": "test", "faults": 1, "warns": 1, "rows": [
         {"level": "fault", "code": "OLED-DEAD", "text": "nothing holds it"},
