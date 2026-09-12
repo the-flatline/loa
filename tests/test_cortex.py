@@ -18,9 +18,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from loa import cortexd, cortex, expressions, moods, oled, fault  # noqa: E402
+from loa import cortexd, cortex, expressions, moods, face, fault  # noqa: E402
 from loa import ring as ringd  # noqa: E402
-from loa.oled_daemon import _wash, render_loop  # noqa: E402
+from loa.oled import _wash, render_loop  # noqa: E402
 
 PASS = 0
 
@@ -120,14 +120,24 @@ r = c.post("/display", json={"mode": "bogus"})
 check("bad display 400", r.status_code == 400)
 
 print("== oled animations (no hardware) ==")
-fb = oled.Frame()
-for name, maker in [("scope", oled.Scope), ("ecg", oled.ECG),
-                    ("ripple", oled.Ripple), ("noise", oled.Noise),
-                    ("text", lambda: oled.Marquee("THE OLD GIRL")),
-                    ("showoff", oled.Showoff)]:
+fb = face.Frame()
+for name, maker in [("scope", face.Scope), ("ecg", face.ECG),
+                    ("ripple", face.Ripple), ("noise", face.Noise),
+                    ("text", lambda: face.Marquee("THE OLD GIRL")),
+                    ("showoff", face.Showoff)]:
     fb.clear()
-    maker().draw(fb, time.time())
-    check(f"oled {name} draws pixels", sum(fb.buf) > 0)
+    # A time-based animation needs a window, not an instant. Showoff cycles
+    # through blank phases, so a single sample can catch it idle and read as a
+    # broken renderer — it did, and failed a green suite at random.
+    drew = False
+    t0 = time.time()
+    for i in range(24):
+        fb.clear()
+        maker().draw(fb, t0 + i * 0.25)
+        if sum(fb.buf) > 0:
+            drew = True
+            break
+    check(f"oled {name} draws pixels", drew)
 
 print("== oled daemon smoke ==")
 render_loop(max_frames=10)
@@ -148,7 +158,7 @@ class RecordingDisplay:
         pass
 
 rec = RecordingDisplay()
-wash_frame = oled.Frame()
+wash_frame = face.Frame()
 _wash(rec, wash_frame, 1.0)                      # blink window 0.4s: ON then OFF
 check("wash drives every pixel ON", any(all(b == 0xFF for b in f) for f in rec.frames))
 check("wash drives every pixel OFF", any(all(b == 0x00 for b in f) for f in rec.frames))
@@ -347,7 +357,7 @@ check("ripperdoc back to sensors", r.status_code == 200
 print("== ripperdoc face (no hardware) ==")
 
 fb.clear()
-rd = oled.Ripperdoc()
+rd = face.Ripperdoc()
 rd.draw_state(fb, 100.0, {"pir_high": False, "sense_count": 0,
                           "sense_ts": None})
 off_buf = bytes(fb.buf)
@@ -438,7 +448,7 @@ print("== ripperdoc twin (no hardware) ==\n")
 
 from loa import ripperdoc  # noqa: E402
 
-fb = oled.Frame()
+fb = face.Frame()
 fb.px(0, 0)
 art = ripperdoc.oled_art(fb)
 check("oled twin renders pixels", "▀" in art or "█" in art)

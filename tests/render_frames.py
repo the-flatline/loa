@@ -8,7 +8,7 @@ import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from loa import oled
+from loa import face
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frames")
 os.makedirs(OUT, exist_ok=True)
@@ -34,56 +34,56 @@ def write_png(path, w, h, rows):
 
 def frame_to_rows(fb):
     rows = []
-    for y in range(oled.HEIGHT):
+    for y in range(face.HEIGHT):
         page = y >> 3
         bit = 1 << (y & 7)
         rows.append([
-            255 if fb.buf[page * oled.WIDTH + x] & bit else 0
-            for x in range(oled.WIDTH)
+            255 if fb.buf[page * face.WIDTH + x] & bit else 0
+            for x in range(face.WIDTH)
         ])
     return rows
 
 
 def save(name, fb, t):
     fb.draw(fb, t) if False else None
-    write_png(os.path.join(OUT, f"{name}.png"), oled.WIDTH, oled.HEIGHT,
+    write_png(os.path.join(OUT, f"{name}.png"), face.WIDTH, face.HEIGHT,
               frame_to_rows(fb))
     print(f"wrote {name}.png")
 
 
-fb = oled.Frame()
+fb = face.Frame()
 
 # scope with a live blip mid-decay + scan bar somewhere else
-s = oled.Scope()
+s = face.Scope()
 s.next_blip = time.time() - 1.0
 s.tick(1.0)                      # spawn the blip
 s.blips = [(s.blips[0][0], 0.7)]
 fb.clear()
 s.draw(fb, 1.5)                  # scan bar at ~x60
-write_png(os.path.join(OUT, "face-scope.png"), oled.WIDTH, oled.HEIGHT,
+write_png(os.path.join(OUT, "face-scope.png"), face.WIDTH, face.HEIGHT,
           frame_to_rows(fb))
 print("wrote face-scope.png")
 
 fb.clear()
-oled.ECG().draw(fb, 0.1)
-write_png(os.path.join(OUT, "face-ecg.png"), oled.WIDTH, oled.HEIGHT,
+face.ECG().draw(fb, 0.1)
+write_png(os.path.join(OUT, "face-ecg.png"), face.WIDTH, face.HEIGHT,
           frame_to_rows(fb))
 print("wrote face-ecg.png")
 
 fb.clear()
-oled.Ripple().draw(fb, 0.3)
-write_png(os.path.join(OUT, "face-ripple.png"), oled.WIDTH, oled.HEIGHT,
+face.Ripple().draw(fb, 0.3)
+write_png(os.path.join(OUT, "face-ripple.png"), face.WIDTH, face.HEIGHT,
           frame_to_rows(fb))
 print("wrote face-ripple.png")
 
 fb.clear()
-oled.Noise().draw(fb, 2.5)
-write_png(os.path.join(OUT, "face-noise.png"), oled.WIDTH, oled.HEIGHT,
+face.Noise().draw(fb, 2.5)
+write_png(os.path.join(OUT, "face-noise.png"), face.WIDTH, face.HEIGHT,
           frame_to_rows(fb))
 print("wrote face-noise.png")
 
 fb.clear()
-oled.Marquee("THE OLD GIRL").draw(fb, 3.0)
-write_png(os.path.join(OUT, "face-marquee.png"), oled.WIDTH, oled.HEIGHT,
+face.Marquee("THE OLD GIRL").draw(fb, 3.0)
+write_png(os.path.join(OUT, "face-marquee.png"), face.WIDTH, face.HEIGHT,
           frame_to_rows(fb))
 print("wrote face-marquee.png")

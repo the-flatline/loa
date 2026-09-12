@@ -12,7 +12,7 @@ The default mood is "calm": the flatline baseline — a flat scope trace with
 occasional blips. That is the house look.
 """
 
-from . import oled
+from . import face
 
 MOODS = {
     "calm": {

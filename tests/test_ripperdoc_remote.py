@@ -40,19 +40,31 @@ def test_console_never_reads_a_local_cortex_db(monkeypatch):
 
 
 def test_ring_twin_comes_over_the_wire(monkeypatch):
-    """The ring bytes must be fetched. Reading /dev/shm/loa-ring.bin is a
-    body-local path: off-body it is always empty, hence a permanent OFFLINE."""
+    """The ring bytes must be fetched, and decoded as HEX.
+
+    /twin sends the ring hex-encoded and the face base64. Assuming base64 for
+    both produced a 108-byte ring frame from a 72-byte one — no error, just
+    wrong pixels, which reads as a hardware fault. The test asserts the
+    encoding, not just the round-trip, because a round-trip test written with
+    the same wrong assumption passes happily."""
     asked = []
     frame = bytes(range(72))
 
     def fake_get(path):
         asked.append(path)
-        return {"ring": base64.b64encode(frame).decode(), "face": "x"}
+        return {"ring": frame.hex(), "face": "x"}
 
     monkeypatch.setattr(rd, "_get", fake_get)
-    raw = base64.b64decode(fake_get("/twin")["ring"])
+    tw = fake_get("/twin")
+    raw = bytes.fromhex(tw["ring"])
     assert asked == ["/twin"]
     assert len(raw) == 72, "the ring twin must round-trip"
+    try:
+        bad = base64.b64decode(tw["ring"])
+    except Exception:
+        bad = b""
+    assert len(bad) != 72, ("if base64 happened to give 72 bytes this test "
+                            "could not tell the two encodings apart")
 
 
 def test_an_unreachable_body_says_so(monkeypatch):
@@ -74,7 +86,7 @@ def test_frag_state_comes_over_the_wire_not_off_local_disk(monkeypatch):
     def local_read_is_forbidden():
         raise AssertionError("console read a BODY-local status file")
 
-    monkeypatch.setattr(rd.oled, "_fragment_status", local_read_is_forbidden)
+    monkeypatch.setattr(rd.face, "_fragment_status", local_read_is_forbidden)
     monkeypatch.setattr(rd, "_get", lambda path: {
         "ring": "", "face": "", "status": {"frag": sealed, "page": "frag"},
     })
@@ -84,7 +96,7 @@ def test_frag_state_comes_over_the_wire_not_off_local_disk(monkeypatch):
 
 def test_frag_page_draws_sealed_from_body_state(monkeypatch):
     """The FRAG page must render the BODY's seal state, not this machine's."""
-    import loa.oled as oled
+    import loa.face as oled
 
     def local_read_is_forbidden():
         raise AssertionError("FRAG page read a BODY-local status file")
@@ -104,7 +116,7 @@ def test_frag_page_draws_sealed_from_body_state(monkeypatch):
 
 def test_frag_page_still_falls_back_to_the_file_on_the_body(monkeypatch):
     """On the Pi the face daemon carries no `frag` key — it owns the file."""
-    import loa.oled as oled
+    import loa.face as oled
 
     monkeypatch.setattr(oled, "_fragment_status",
                         lambda: {"sealed": True, "entries": 3,
@@ -120,7 +132,7 @@ def test_frag_page_still_falls_back_to_the_file_on_the_body(monkeypatch):
 
 def test_pain_page_reads_the_body_sweep(monkeypatch):
     """PAIN must not read NO SWEEP off an off-body /dev/shm path."""
-    import loa.oled as oled
+    import loa.face as oled
 
     def local_read_is_forbidden():
         raise AssertionError("PAIN page read a BODY-local faults file")

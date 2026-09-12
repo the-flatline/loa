@@ -1,4 +1,4 @@
-"""oled_daemon — publish on change.
+"""oled — publish on change.
 
 A daemon that rewrites identical bytes 30 times a second is doing work no
 reader can observe, and on an uncooled body that work is heat. The bytes only
@@ -10,8 +10,8 @@ construction (found the hard way).
 """
 import os
 
-import loa.oled_daemon as od
-from loa import oled
+import loa.oled as od
+from loa import face
 
 
 def _counting_open(writes):
@@ -32,7 +32,7 @@ def test_identical_frames_are_not_republished(tmp_path, monkeypatch):
     writes = []
     monkeypatch.setattr(od, "open", _counting_open(writes), raising=False)
 
-    f = oled.Frame()                          # known blank: every px unlit
+    f = face.Frame()                          # known blank: every px unlit
     od._publish_face(f)
     assert writes == [str(topic)], "first publish must land"
 
@@ -49,5 +49,5 @@ def test_identical_frames_are_not_republished(tmp_path, monkeypatch):
 def test_a_failed_publish_does_not_raise(monkeypatch):
     monkeypatch.setattr(od, "OLED_TOPIC", "/proc/definitely/not/writable")
     monkeypatch.setattr(od, "_LAST_FACE", {"buf": None})
-    od._publish_face(oled.Frame())             # must not raise
+    od._publish_face(face.Frame())             # must not raise
     assert os.path.exists("/proc")             # sanity: we are still here

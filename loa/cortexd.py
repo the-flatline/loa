@@ -34,7 +34,7 @@ from . import fault
 from . import expressions as expr
 from . import fragment as fragment_mod
 from . import moods
-from . import oled
+from . import face
 
 DEFAULT_PORT = 8765
 
@@ -184,7 +184,7 @@ def _full_state(history_n=0):
             "snr_count": st["snr_count"],
         },
         "system": _system_state(),
-        "power": oled.power_status(),
+        "power": face.power_status(),
         "faults": fault.status(),
         "condition": fault.condition(),
         "history": cortex.history(history_n) if history_n > 0 else [],
@@ -285,8 +285,8 @@ def display(req: DisplayRequest):
 def ripperdoc(req: RipperdocRequest):
     fields = {}
     if req.page is not None:
-        if req.page not in oled.Ripperdoc.PAGES:
-            raise HTTPException(400, f"page must be {'|'.join(oled.Ripperdoc.PAGES)}")
+        if req.page not in face.Ripperdoc.PAGES:
+            raise HTTPException(400, f"page must be {'|'.join(face.Ripperdoc.PAGES)}")
         fields["ripperdoc_page"] = req.page
     if req.on is not None:
         fields["ripperdoc"] = 1 if req.on else 0
@@ -313,7 +313,7 @@ def twin():
     import base64
     import os
     ring = None
-    face = None
+    face_b64 = None
     try:
         with open("/dev/shm/loa-ring.bin", "rb") as f:
             ring = f.read(72).hex()
@@ -321,14 +321,14 @@ def twin():
         pass
     try:
         with open("/dev/shm/loa-oled.bin", "rb") as f:
-            face = base64.b64encode(f.read(1024)).decode()
+            face_b64 = base64.b64encode(f.read(1024)).decode()
     except OSError:
         pass
     st = cortex.get_state()
     return {
         "ts": time.time(),
         "ring": ring,
-        "face": face,
+        "face": face_b64,
         "status": {
             "mood": st["mood"],
             "ring_state": st["ring_state"],
@@ -345,7 +345,7 @@ def twin():
             "pressure_hpa": st["pressure_hpa"],
             "baro_trend": cortex.baro_trend(),
             "baro_series": _baro_series(),
-            "frag": oled._fragment_status(),
+            "frag": face._fragment_status(),
         },
     }
 

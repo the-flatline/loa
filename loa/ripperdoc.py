@@ -32,8 +32,8 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Static
 
 from . import cortex
+from . import face
 from . import oled
-from . import oled_daemon
 
 DEFAULT_PORT = 8765
 POLL_S = 0.1
@@ -84,7 +84,7 @@ def _get(path):
 
 def _px(frame, x, y):
     """Pixel from the page-major SH1106 framebuffer (same layout as blit)."""
-    return bool(frame.buf[(y // 8) * oled.WIDTH + x] & (1 << (y % 8)))
+    return bool(frame.buf[(y // 8) * face.WIDTH + x] & (1 << (y % 8)))
 
 
 def oled_art(frame):
@@ -96,7 +96,7 @@ def oled_art(frame):
     lines = []
     for y in range(0, 64, 2):
         row = []
-        for x in range(0, oled.WIDTH):
+        for x in range(0, face.WIDTH):
             t = _px(frame, x, y)
             b = _px(frame, x, y + 1) if y + 1 < 64 else False
             row.append("█" if t and b else "▀" if t else "▄" if b else " ")
@@ -263,12 +263,12 @@ class RipperdocApp(App):
             return
         self.query_one("#status", Static).update(fetch_sense())
         # face twin: run the real renderer for the current mode
-        frame = oled.Frame()
+        frame = face.Frame()
         mode = st["oled_mode"]
         if mode == "off":
             frame.clear()
         else:
-            cls = oled_daemon.MODE_CLASSES.get(mode, oled.Marquee)
+            cls = oled.MODE_CLASSES.get(mode, face.Marquee)
             try:
                 if mode == "text":
                     r = cls(st.get("oled_text") or "LOA")
@@ -285,9 +285,14 @@ class RipperdocApp(App):
         self._tick_ring()
 
     def _tick_ring(self):
-        """Mirror the body's ring — fetched, not read off a local file."""
+        """Mirror the body's ring — fetched, not read off a local file.
+
+        /twin carries the ring as HEX (the face is base64). Decode it as
+        base64 and you get 108 bytes of plausible-looking rubbish that draws
+        twelve wrong pixels — and looks like a body fault.
+        """
         try:
-            raw = base64.b64decode((twin_payload() or {}).get("ring") or "")
+            raw = bytes.fromhex((twin_payload() or {}).get("ring") or "")
         except Exception:
             raw = b""
         if len(raw) < 72:
