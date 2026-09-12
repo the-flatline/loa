@@ -663,15 +663,14 @@ class Ripperdoc:
             for xx in range(cx - r, cx + r + 1):
                 if (xx - cx) ** 2 + (yy - cy) ** 2 <= r ** 2:
                     frame.px(xx, yy)
-        # stem tube — meets the bulb's right edge
-        sx, sy, sw, sh = cx + r, y + 3, 96, 8
-        frame.line(sx, sy, sx + sw, sy)          # top
-        frame.line(sx, sy + sh, sx + sw, sy + sh)  # bottom
-        frame.line(sx + sw, sy, sx + sw, sy + sh)  # right cap
-        fill = int(frac * (sw - 2))
+        # mercury — solid bar from the bulb to the fill level, no tube
+        # outline: the empty range is just dark screen
+        sx, sy = cx + r, y + 3
+        sw, sh = 96, 8
+        fill = int(frac * sw)
         if fill > 0:
-            for yy in range(sy + 1, sy + sh):
-                for xx in range(sx + 1, sx + 1 + fill):
+            for yy in range(sy, sy + sh):
+                for xx in range(sx, sx + fill):
                     frame.px(xx, yy)
 
     def _page_frag(self, frame, t, st):
