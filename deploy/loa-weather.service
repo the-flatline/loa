@@ -1,0 +1,13 @@
+[Unit]
+Description=loa weather — temp/humidity (GPIO4) + baro (i2c 0x77)
+After=network.target loa-cortex.service
+
+[Service]
+Type=simple
+ExecStart=/home/flatline/venv/bin/loa-weather
+Restart=always
+RestartSec=3
+User=flatline
+
+[Install]
+WantedBy=multi-user.target

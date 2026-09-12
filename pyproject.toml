@@ -23,9 +23,11 @@ loa-ring = "loa.ring:main"
 loa-cortex = "loa.cortexd:main"
 loa-ctl = "loa.control:serve"
 loa-oled = "loa.oled_daemon:main"
+loa-motion = "loa.motion:main"
+loa-sonar = "loa.sonar:main"
+loa-weather = "loa.weather:main"
 ripperdoc = "loa.ripperdoc:main"
 loa-fault = "loa.fault:main"
-loa-sense = "loa.sense:main"
 
 [tool.setuptools]
 packages = ["loa"]

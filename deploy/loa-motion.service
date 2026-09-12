@@ -1,0 +1,13 @@
+[Unit]
+Description=loa motion — PIR daemon (GPIO17)
+After=network.target loa-cortex.service
+
+[Service]
+Type=simple
+ExecStart=/home/flatline/venv/bin/loa-motion
+Restart=always
+RestartSec=3
+User=flatline
+
+[Install]
+WantedBy=multi-user.target
