@@ -637,49 +637,47 @@ class Ripperdoc:
         temp = st.get("temp_c")
         hum = st.get("hum_pct")
         if temp is None:
-            amiga.draw(frame, "--.-C", 2, 34, size=8)
-            self._gauge(frame, 2, 14, 0.0)
+            amiga.draw(frame, "--.-C", 62, 22, size=8)
+            self._gauge(frame, 8, 28, 0.0)
             return
         lo, hi = 5.0, 40.0
         frac = max(0.0, min(1.0, (temp - lo) / (hi - lo)))
-        self._gauge(frame, 2, 14, frac)
-        amiga.draw(frame, f"{temp:4.1f}C", 2, 34, size=8)
+        self._gauge(frame, 8, 28, frac)
+        amiga.draw(frame, f"{temp:4.1f}C", 62, 22, size=8)
         if hum is not None:
-            amiga.draw(frame, f"{hum:3.0f}%RH", 52, 34, size=8)
-        amiga.draw(frame, f"{lo:.0f}C", 2, 48, size=8)
-        amiga.draw(frame, f"{hi:.0f}C", 98, 48, size=8)
+            amiga.draw(frame, f"{hum:3.0f}%RH", 62, 33, size=8)
+        amiga.draw(frame, f"{lo:.0f}C", 2, 42, size=8)
+        amiga.draw(frame, f"{hi:.0f}C", 48, 42, size=8)
 
     def _gauge(self, frame, x, y, frac):
-        """Horizontal bulb thermometer: filled bulb at (x,y), stem right.
-
-        No vertical room on a 64px face, so the mercury runs left-to-right:
-        the bulb sits at the left, the stem is the tube, the fill grows from
-        the bulb toward the range end. frac 0..1 across the stem.
+        """Horizontal bulb thermometer — the reference icon laid sideways:
+        1px tube walls, hollow interior, mercury inside, rounded right cap,
+        graduation ticks above. frac 0..1 along the tube.
         """
-        # bulb — filled circle, round like a real thermometer bulb
         r = 6
-        cx, cy = x + r, y + r + 1
+        cx, cy = x, y
         for yy in range(cy - r, cy + r + 1):
             for xx in range(cx - r, cx + r + 1):
                 if (xx - cx) ** 2 + (yy - cy) ** 2 <= r ** 2:
                     frame.px(xx, yy)
-        # tube — 1px walls, hollow interior, rounded right cap (icon style)
-        sx, sy, sw, sh = cx + r, y + 3, 98, 9
-        frame.line(sx, sy, sx + sw, sy)              # top wall
-        frame.line(sx, sy + sh, sx + sw, sy + sh)    # bottom wall
+        # tube — from the bulb's right edge, short and thick like the icon
+        sx, sy = cx + r, y - 3
+        sw, sh = 45, 7
+        frame.line(sx, sy, sx + sw, sy)                # top wall
+        frame.line(sx, sy + sh, sx + sw, sy + sh)      # bottom wall
         frame.line(sx + sw, sy + 1, sx + sw, sy + sh - 1)  # right cap
-        frame.px(sx + sw + 1, sy + 2)                # cap rounding
+        frame.px(sx + sw + 1, sy + 2)                  # cap rounding
         frame.px(sx + sw + 1, sy + sh - 2)
-        # graduation ticks above the top wall
-        for i in range(1, 6):
-            tx = sx + int(i * sw / 6)
+        # ticks above the tube
+        for i in range(4):
+            tx = sx + 6 + i * 10
             frame.px(tx, sy - 1)
             frame.px(tx, sy - 2)
-        # mercury — solid inside the tube, from the bulb to the fill level
-        fill = int(frac * (sw - 1))
+        # mercury — inside the walls, from the bulb to the fill level
+        fill = int(frac * (sw - 2))
         if fill > 0:
             for yy in range(sy + 1, sy + sh):
-                for xx in range(sx, sx + fill):
+                for xx in range(sx + 1, sx + 1 + fill):
                     frame.px(xx, yy)
 
     def _page_frag(self, frame, t, st):
