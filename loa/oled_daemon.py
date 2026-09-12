@@ -69,6 +69,8 @@ MODE_CLASSES = {
 # the face's topic on the loa frame bus — RAM-backed, mirror of the panel
 OLED_TOPIC = "/dev/shm/loa-oled.bin"
 
+_LAST_FACE: dict = {"buf": None}
+
 BRIGHT = 0xCF
 DIM = 0x18
 
@@ -141,16 +143,23 @@ def render_loop(display=None, max_frames=None):
 
 
 def _publish_face(frame) -> None:
-    """Publish the exact framebuffer to /dev/shm/loa-oled.bin (1KB).
+    """Publish the framebuffer to /dev/shm/loa-oled.bin (1KB) — on CHANGE only.
 
-    The face's topic on the loa frame bus — RAM-backed, same model as the
-    ring. Web/relay consumers read it via the API, never touch loa directly.
+    The daemon redraws 4-30x a second, but a status page is usually identical
+    frame to frame. Rewriting identical bytes is work with no reader benefit,
+    and the file's mtime is what tells a consumer the frame moved. Publish-on-
+    change is also exactly the semantics a subscriber needs, so this is the
+    first half of the pub/sub bridge done in a way that cannot break anything.
     """
+    buf = bytes(frame.buf)
+    if _LAST_FACE["buf"] == buf:
+        return
     try:
         with open(OLED_TOPIC, "wb") as f:
-            f.write(frame.buf)
+            f.write(buf)
     except OSError:
-        pass
+        return
+    _LAST_FACE["buf"] = buf
 
 
 def _wash(display, frame, secs):
