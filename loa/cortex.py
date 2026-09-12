@@ -201,12 +201,18 @@ def clear_event():
     set_state({"pending_event": None})
 
 
-def log_event(kind, detail=None):
+def log_event(kind, detail=None, ts=None):
+    """Append a record.
+
+    ts is accepted so a message that travelled — published, queued, consumed by
+    a subscriber — is recorded at the time it HAPPENED rather than the time it
+    landed. A record with the wrong timestamp is a lie about when something
+    broke, and the timestamp is the only thing that makes a record usable."""
     with _lock:
         _connect().execute(
             "INSERT INTO events (ts, kind, detail) VALUES (?, ?, ?)",
-            (time.time(), kind, json.dumps(detail) if detail is not None
-             else None))
+            (time.time() if ts is None else ts, kind,
+             json.dumps(detail) if detail is not None else None))
 
 
 # -- baro telemetry -------------------------------------------------------

@@ -9,14 +9,25 @@ description = "loa cortex — ring + OLED drivers, moods, expressions, and the H
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = ["spidev>=3.5", "cryptography>=42"]
+dependencies = [
+    "spidev>=3.5",
+    "cryptography>=42",
+    "pyzmq>=27.2.0",
+    "protobuf>=7.36.1",
+]
 
 [project.optional-dependencies]
 api = ["fastapi>=0.110", "uvicorn>=0.27", "cryptography>=42"]
 ripperdoc = ["textual>=0.60"]
 
 [dependency-groups]
-dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110", "cryptography>=42"]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+    "fastapi>=0.110",
+    "cryptography>=42",
+    "grpcio-tools>=1.83.1",
+]
 
 [project.scripts]
 loa-ring = "loa.ring:main"
@@ -27,6 +38,8 @@ loa-sonar = "loa.sonar:main"
 loa-weather = "loa.weather:main"
 ripperdoc = "loa.ripperdoc:main"
 loa-fault = "loa.fault:main"
+loa-record = "loa.record:main"
+loa-topic-tail = "loa.topic:main"
 
 [tool.setuptools]
 packages = ["loa"]

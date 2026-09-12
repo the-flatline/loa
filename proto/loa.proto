@@ -1,0 +1,78 @@
+// loa — the body's wire contract.
+//
+// ONE schema. loa-cortex publishes these; everything that needs data
+// SUBSCRIBES to the topic. The cortex does not fan out private copies for the
+// feed, RAM and the DB — that is three things that can drift.
+//
+// If a publisher and a subscriber disagree about the shape, that must FAIL
+// LOUDLY. Never decode into plausible rubbish. That exact failure cost an hour
+// of hunting phantom LEDs on 2026-09-12: a hex-encoded ring frame was base64
+// decoded and produced a right-SIZED, entirely wrong answer, which read as
+// hardware.
+//
+// BUMP SCHEMA_VERSION (loa/topic.py) on any change here.
+
+syntax = "proto3";
+
+package loa;
+
+// One published message. The version travels with every message so a mismatched
+// consumer fails on arrival instead of misreading fields.
+message Envelope {
+  uint32 schema_version = 1;
+
+  oneof body {
+    State state = 2;   // state changed — the live picture, RAM-shaped
+    Twin twin = 3;     // a frame moved — raw bytes, never encoded
+    Event event = 4;   // something happened — a record
+  }
+}
+
+// The body's live state. Scalar only, by construction: no bytes, so nothing
+// here can be silently base64'd on the way to a record.
+message State {
+  string mood = 1;
+  double mood_set_at = 2;
+  string ring_state = 3;
+  string pending_event = 4;
+
+  string oled_mode = 5;
+  string oled_text = 6;
+  bool oled_dim = 7;
+
+  bool ripperdoc = 8;
+  string ripperdoc_page = 9;
+  string condition = 10;
+
+  bool pir_high = 11;
+  uint32 pir_count = 12;
+  double pir_last_ts = 13;
+  double pir_last_hold = 14;
+
+  optional double snr_cm = 15;
+  uint32 snr_count = 16;
+
+  optional double temp_c = 17;
+  optional double hum_pct = 18;
+  double temp_ts = 19;
+
+  optional double pressure_hpa = 20;
+  double baro_ts = 21;
+}
+
+// A frame moved. RAW bytes — protobuf carries them, so no hex, no base64, and
+// nothing to guess at. This is why the encoding is declared in the schema.
+message Twin {
+  bytes face = 1;   // 1024 bytes, 1bpp, the panel as driven
+  bytes ring = 2;   // 72 bytes, 24 px RGB, as driven
+}
+
+// Something happened. detail is a string map, which keeps events to scalars:
+// a bytes field here would be silently base64-encoded by the canonical JSON
+// mapping, smuggling an encoding into the database where nobody looks for one.
+// A frame event records the frame's HASH, never the frame.
+message Event {
+  double ts = 1;
+  string kind = 2;
+  map<string, string> detail = 3;
+}

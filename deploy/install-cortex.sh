@@ -22,10 +22,12 @@ fi
 echo "== installing services =="
 sudo cp deploy/loa-ring.service deploy/loa-oled.service deploy/loa-cortex.service \
         deploy/loa-motion.service deploy/loa-sonar.service deploy/loa-weather.service \
+        deploy/loa-record.service \
         deploy/loa-fault.service deploy/loa-fault.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now loa-ring loa-oled loa-cortex \
-                            loa-motion loa-sonar loa-weather loa-fault.timer
+                            loa-motion loa-sonar loa-weather loa-record \
+                            loa-fault.timer
 
 echo "== retiring units that no longer exist =="
 for dead in loa-presence loa-sense loa-api loa-faults loa-ctl; do

@@ -28,13 +28,13 @@ FAULTS_PATH = "/dev/shm/loa-faults.json"
 # Units the body expects to exist and be running. loa-presence is the ring
 # (its unit has been missing from /etc/systemd/system before now).
 UNITS = ("loa-cortex", "loa-oled", "loa-motion", "loa-sonar", "loa-weather",
-         "loa-ring")
+         "loa-ring", "loa-record")
 
 # Console scripts an unclean shutdown has zeroed before (empty file =>
 # Exec format error => crash-loop that looks like a dead device).
 SCRIPTS_DIR = "/home/flatline/venv/bin"
 SCRIPTS = ("loa-cortex", "loa-oled", "loa-ring", "loa-motion", "loa-sonar",
-           "loa-weather", "ripperdoc")
+           "loa-weather", "loa-record", "ripperdoc")
 
 # Who should hold which SPI bus. Two writers on one bus is the classic
 # ghost-in-the-panel fault.
