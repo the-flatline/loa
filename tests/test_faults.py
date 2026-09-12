@@ -97,6 +97,44 @@ def test_face_labels_carry_the_evidence_and_fit():
         assert len(label) <= 14, f"{label!r} will not fit the face"
 
 
+def test_a_ghost_reading_is_not_a_reading(monkeypatch):
+    """Found live: with the temp sensor unplugged, the cortex still held 23.8C
+    from 100 minutes earlier and the sweep called the body well. 'Is there a
+    value?' is not the same question as 'is it live?'."""
+    import time as _t
+    import loa.cortex as cortex
+    import loa.faults as f
+
+    now = _t.time()
+    monkeypatch.setattr(cortex, "get_state", lambda: {
+        "temp_c": 23.8, "temp_ts": now - 6002,          # 100 minutes old
+        "pressure_hpa": None, "baro_ts": None,
+    })
+    rows = []
+    f._check_sensors(rows)
+    assert [r["code"] for r in rows] == ["TEMP STALE"], rows
+    assert "100 min ago" in rows[0]["text"]
+    assert len(rows[0]["face"]) <= 14, "must fit the face"
+
+    # fresh reading: silent
+    monkeypatch.setattr(cortex, "get_state", lambda: {
+        "temp_c": 23.8, "temp_ts": now - 5,
+        "pressure_hpa": None, "baro_ts": None,
+    })
+    rows.clear()
+    f._check_sensors(rows)
+    assert rows == []
+
+    # absent sensor: not this check's business (the face shows absence)
+    monkeypatch.setattr(cortex, "get_state", lambda: {
+        "temp_c": None, "temp_ts": None,
+        "pressure_hpa": None, "baro_ts": None,
+    })
+    rows.clear()
+    f._check_sensors(rows)
+    assert rows == []
+
+
 def test_quiet_format_prints_only_faults():
     rep = {"ts": 0.0, "boot": "test", "faults": 1, "warns": 1, "rows": [
         {"level": "fault", "code": "OLED-DEAD", "text": "nothing holds it"},

@@ -40,6 +40,8 @@ BUS_OWNERS = {"/dev/spidev0.0": "loa-oled", "/dev/spidev1.0": "loa-presence"}
 BUS_LABEL = {"/dev/spidev0.0": "FACE", "/dev/spidev1.0": "RING"}
 
 DISK_WARN_PCT = 85
+SENSOR_STALE_S = 600.0      # 10 min without a read: stop believing the number
+SENSORS = (("TEMP", "temp_c", "temp_ts"), ("BARO", "pressure_hpa", "baro_ts"))
 FAULTS_STALE_S = 300.0      # 5 missed sweeps at 1/min = the sense has gone deaf
 CONDITIONS = ("well", "niggle", "hurts", "mute")
 
@@ -196,6 +198,41 @@ def _check_rails(rows):
                              + f" (throttled={hex(bits)})"})
 
 
+def _check_sensors(rows):
+    """A number with an old timestamp is not a reading — it's a ghost.
+
+    Every other check asks "is there a value?". This one asks "is it live?".
+    Found live 2026-09-12: with the temp sensor physically unplugged, the
+    cortex still held 23.8C from 100 minutes earlier and the sweep called the
+    body well. Presenting stale data as current is worse than presenting none.
+
+    Only continuously-sampled sensors are checked. The PIR is not: "no motion
+    for three hours" is a quiet room, not a fault.
+    """
+    try:
+        from . import cortex
+        st = cortex.get_state()
+    except Exception:                                       # noqa: BLE001
+        return
+    now = time.time()
+    for label, val_key, ts_key in SENSORS:
+        if st.get(val_key) is None:
+            continue                  # absent entirely: the face shows that
+        ts = st.get(ts_key)
+        if not ts:
+            rows.append({"level": "warn", "code": f"{label} NO TS",
+                         "text": f"{val_key} has a value but no timestamp — "
+                                 f"nothing can say how old it is"})
+            continue
+        age = now - ts
+        if age > SENSOR_STALE_S:
+            rows.append({"level": "warn", "code": f"{label} STALE",
+                         "face": f"{label} {int(age / 60)}M OLD",
+                         "text": f"{val_key} last read {age / 60:.0f} min "
+                                 f"ago — that number is a ghost, not a "
+                                 f"reading"})
+
+
 def _check_disk(rows):
     try:
         free_gb = shutil.disk_usage("/").free / 1e9
@@ -229,7 +266,7 @@ def sweep():
     """Return {"ts", "boot", "rows": [...]}. Faults first, worst first."""
     rows = []
     for check in (_check_units, _check_scripts, _check_buses, _check_rails,
-                  _check_disk, _check_api, _check_i2c):
+                  _check_sensors, _check_disk, _check_api, _check_i2c):
         try:
             check(rows)
         except Exception as e:                                  # noqa: BLE001
