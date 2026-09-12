@@ -639,13 +639,11 @@ class Ripperdoc:
         if temp is None:
             amiga.draw(frame, "--.-C", 2, 52, size=8)
             amiga.draw(frame, "--%", 110, 52, size=8)
-            self._gauge(frame, 2, 14, 0.0)
+            self._gauge(frame, 2, 12, 0.0)
             return
         lo, hi = 5.0, 40.0
         frac = max(0.0, min(1.0, (temp - lo) / (hi - lo)))
-        self._gauge(frame, 2, 14, frac)
-        amiga.draw(frame, f"{lo:.0f}C", 2, 34, size=8)
-        amiga.draw(frame, f"{hi:.0f}C", 98, 34, size=8)
+        self._gauge(frame, 2, 12, frac)
         amiga.draw(frame, f"{temp:4.1f}C", 2, 52, size=8)
         if hum is not None:
             amiga.draw(frame, f"{hum:3.0f}%", 110, 52, size=8)
@@ -655,11 +653,11 @@ class Ripperdoc:
         round bulb, solid stem, hollow end for the unfilled range. One
         continuous silhouette — no outlines over the filled portion, no
         gaps between bulb and stem (the stem overlaps the bulb's shoulder).
-        Stem height = half the bulb diameter. frac 0..1 along the stem.
+        Stem height = half the bulb diameter; the stem runs to the right
+        edge of the face. frac 0..1 along the stem.
         """
-        # bulb — solid filled circle
-        r = 8
-        cx, cy = x + 8, y + 7
+        r = 10
+        cx, cy = x + 10, y + 10
         for yy in range(cy - r, cy + r + 1):
             for xx in range(cx - r, cx + r + 1):
                 if (xx - cx) ** 2 + (yy - cy) ** 2 <= r * r:
@@ -667,7 +665,7 @@ class Ripperdoc:
         # stem — frame drawn full length, but the fill paints over it in
         # the filled stretch (same green, invisible seam): the bar reads
         # solid from the bulb to the fill level, hollow beyond it.
-        sx, sy, sw, sh = x + 12, y + 3, 90, 8
+        sx, sy, sw, sh = x + 14, y + 5, 111, 10
         frame.line(sx, sy, sx + sw, sy)             # top
         frame.line(sx, sy + sh, sx + sw, sy + sh)   # bottom
         frame.line(sx + sw, sy, sx + sw, sy + sh)   # right cap
