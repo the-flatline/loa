@@ -834,8 +834,8 @@ class Ripperdoc:
         """Where it hurts — the body's pain page.
 
         The code and the API say `fault`; that is the engineering surface and
-        it is accurate. The face says PAIN, because...[truncated]
-        a pain sense that has gone deaf must not read as comfort.
+        it is accurate. The face says PAIN, because the glass is the body's own
+        word for it and a pain sense that has gone deaf must not read as comfort.
         """
         amiga.draw(frame, "PAIN", 2, 1, size=8)
         amiga.draw(frame, "7/7", 99, 1, size=8)
