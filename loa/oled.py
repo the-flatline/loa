@@ -770,14 +770,13 @@ class Ripperdoc:
         self._rail(frame, 2, 56, "COREI", p.get("VDD_CORE_A"), 3, "A")
 
     def _rail(self, frame, x, y, label, val, dp, unit):
-        """One telemetry line. Dashes when the rail can't be read — off-Pi,
-        or vcgencmd missing. Never invents a number.
+        """One telemetry line: label left, number flush right so the units
+        and decimal points stack into a column. Dashes when the rail can't
+        be read — off-Pi, or vcgencmd missing. Never invents a number.
         """
-        if val is None:
-            s = f"{label:<5} --"
-        else:
-            s = f"{label:<5} {val:.{dp}f}{unit}"
-        amiga.draw(frame, s, x, y, size=8)
+        s = "--" if val is None else f"{val:.{dp}f}{unit}"
+        amiga.draw(frame, label, x, y, size=8)
+        amiga.draw(frame, s, WIDTH - 2 - amiga.width(s, 8), y, size=8)
 
     def _lock(self, frame, x, y):
         """A small padlock glyph, 10 wide x 9 tall."""
