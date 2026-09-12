@@ -742,23 +742,26 @@ class Ripperdoc:
 
     def _page_power(self, frame, t, st):
         """The bench's power truth — the page that would have saved an
-        evening. Rails in volts and amps straight off the PMIC, and the two
-        flags that matter: UV lit means the 5V input is sagging right now,
-        THR lit means the SoC is throttling for it. A healthy face shows
-        UV and THR dark and 3V3 sitting at 3.3.
+        evening. The 5V input and the 3V3 rail it feeds, off the PMIC, plus
+        the two flags, spelled out.
+
+        UNDERVOLT lit = the 5V INPUT is sagging RIGHT NOW (throttled bit 0).
+        THROTTLED lit = the SoC is throttling RIGHT NOW (bit 2) — for the
+        sagging input or for heat, either cause. A clean bench is both dark
+        with 3V3 at 3.3. The sticky 'happened since boot' bits stay in
+        /state (power.throttled): this page answers 'is it happening NOW'.
         """
         amiga.draw(frame, "PWR", 2, 1, size=8)
         amiga.draw(frame, "6/6", 99, 1, size=8)
         p = power_status()
         flags = p.get("throttled")
-        self._indicator(frame, 2, 12, "UV",
+        self._indicator(frame, 2, 10, "UNDERVOLT",
                         bool(flags is not None and flags & 0x1))
-        self._indicator(frame, 40, 12, "THR",
+        self._indicator(frame, 2, 23, "THROTTLED",
                         bool(flags is not None and flags & 0x4))
-        self._rail(frame, 2, 28, "5V", p.get("EXT5V_V"), 2, "V")
-        self._rail(frame, 2, 37, "3V3", p.get("3V3_SYS_V"), 3, "V")
-        self._rail(frame, 2, 46, "3V3I", p.get("3V3_SYS_A"), 2, "A")
-        self._rail(frame, 2, 55, "CORE", p.get("VDD_CORE_V"), 3, "V")
+        self._rail(frame, 2, 38, "5V", p.get("EXT5V_V"), 3, "V")
+        self._rail(frame, 2, 47, "3V3", p.get("3V3_SYS_V"), 3, "V")
+        self._rail(frame, 2, 56, "AMPS", p.get("3V3_SYS_A"), 3, "A")
 
     def _rail(self, frame, x, y, label, val, dp, unit):
         """One telemetry line. Dashes when the rail can't be read — off-Pi,
