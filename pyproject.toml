@@ -40,7 +40,6 @@ loa-weather = "loa.weather:main"
 ripperdoc = "loa.ripperdoc:main"
 loa-fault = "loa.fault:main"
 loa-record = "loa.record:main"
-loa-bridge = "loa.bridge:main"
 loa-topic-tail = "loa.topic:main"
 
 [tool.setuptools]
