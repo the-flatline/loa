@@ -56,6 +56,33 @@ def _fragment_status() -> dict:
     return payload
 
 
+def seal_state(st=None):
+    """The vault's public seal state for a frame.
+
+    The BODY's copy wins whenever the caller carries one. The console on dixie
+    renders the real renderer locally, and /var/lib/fragment/status.json is a
+    path that exists on the loa and nowhere else — read it from dixie and the
+    face draws GONE over a vault that is sealed and fine. The face daemon on
+    the Pi carries no `frag` key and falls through to the file it owns.
+    """
+    frag = (st or {}).get("frag")
+    if isinstance(frag, dict) and frag:
+        return frag
+    return _fragment_status()
+
+
+def faults_state(st=None):
+    """Same rule for the sweep: the body's report, or this machine's file.
+
+    /dev/shm/loa-faults.json is published by the body; off-body it never
+    exists, so the PAIN page would read NO SWEEP while the body is hurting.
+    """
+    f = (st or {}).get("faults")
+    if isinstance(f, dict) and f:
+        return f
+    return _faults_status()
+
+
 # ---------------------------------------------------------------------------
 # the body's own pain — reads what the fault sweep published
 
@@ -651,7 +678,7 @@ class Ripperdoc:
         self._indicator(frame, 39, 12, "SNR", st.get("snr_cm") is not None)
         self._indicator(frame, 85, 12, "TMP", st.get("temp_c") is not None)
         self._indicator(frame, 2, 26, "BAR", st.get("pressure_hpa") is not None)
-        self._indicator(frame, 39, 26, "SEAL", bool(_fragment_status().get("sealed")))
+        self._indicator(frame, 39, 26, "SEAL", bool(seal_state(st).get("sealed")))
         count = st.get("sense_count") or 0
         amiga.draw(frame, f"N{count:03d}", 2, 40, size=8)
         amiga.draw(frame, "G17", 44, 40, size=8)
@@ -760,7 +787,7 @@ class Ripperdoc:
     def _page_frag(self, frame, t, st):
         amiga.draw(frame, "FRAG", 2, 1, size=8)
         amiga.draw(frame, "5/7", 99, 1, size=8)
-        frag = _fragment_status()
+        frag = seal_state(st)
         sealed = bool(frag.get("sealed"))
         self._lock(frame, 8, 16)
         amiga.draw(frame, "SEALED" if sealed else "GONE", 24, 16, size=8)
@@ -778,7 +805,7 @@ class Ripperdoc:
         """
         amiga.draw(frame, "PAIN", 2, 1, size=8)
         amiga.draw(frame, "7/7", 99, 1, size=8)
-        f = _faults_status()
+        f = faults_state(st)
         if not f:
             amiga.draw(frame, "NO SWEEP", 2, 10, size=8)
             return

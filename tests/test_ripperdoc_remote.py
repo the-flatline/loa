@@ -61,3 +61,78 @@ def test_an_unreachable_body_says_so(monkeypatch):
 
     monkeypatch.setattr(rd, "_get", dead)
     assert "unreachable" in rd.fetch_sense()
+
+
+def test_frag_state_comes_over_the_wire_not_off_local_disk(monkeypatch):
+    """The vault lives on the loa: /var/lib/fragment/status.json exists there
+    and nowhere else. The console renders the real renderer locally, so reading
+    that path from dixie drew GONE over a sealed vault (found live 2026-09-12).
+    """
+    sealed = {"sealed": True, "entries": 3, "access_count": 6,
+              "hash": "58476845447ac61d", "marker": None}
+
+    def local_read_is_forbidden():
+        raise AssertionError("console read a BODY-local status file")
+
+    monkeypatch.setattr(rd.oled, "_fragment_status", local_read_is_forbidden)
+    monkeypatch.setattr(rd, "_get", lambda path: {
+        "ring": "", "face": "", "status": {"frag": sealed, "page": "frag"},
+    })
+
+    assert rd.body_state()["frag"]["sealed"] is True
+
+
+def test_frag_page_draws_sealed_from_body_state(monkeypatch):
+    """The FRAG page must render the BODY's seal state, not this machine's."""
+    import loa.oled as oled
+
+    def local_read_is_forbidden():
+        raise AssertionError("FRAG page read a BODY-local status file")
+
+    monkeypatch.setattr(oled, "_fragment_status", local_read_is_forbidden)
+    drawn = []
+    monkeypatch.setattr(oled.amiga, "draw",
+                        lambda frame, text, x, y, size=8: drawn.append(text))
+
+    st = {"ripperdoc_page": "frag",
+          "frag": {"sealed": True, "entries": 3, "access_count": 6}}
+    oled.Ripperdoc().draw_state(oled.Frame(), 0.0, st)
+
+    assert "SEALED" in drawn and "GONE" not in drawn
+    assert "N003" in drawn and "A006" in drawn
+
+
+def test_frag_page_still_falls_back_to_the_file_on_the_body(monkeypatch):
+    """On the Pi the face daemon carries no `frag` key — it owns the file."""
+    import loa.oled as oled
+
+    monkeypatch.setattr(oled, "_fragment_status",
+                        lambda: {"sealed": True, "entries": 3,
+                                 "access_count": 6})
+    drawn = []
+    monkeypatch.setattr(oled.amiga, "draw",
+                        lambda frame, text, x, y, size=8: drawn.append(text))
+
+    oled.Ripperdoc().draw_state(oled.Frame(), 0.0, {"ripperdoc_page": "frag"})
+
+    assert "SEALED" in drawn and "GONE" not in drawn
+
+
+def test_pain_page_reads_the_body_sweep(monkeypatch):
+    """PAIN must not read NO SWEEP off an off-body /dev/shm path."""
+    import loa.oled as oled
+
+    def local_read_is_forbidden():
+        raise AssertionError("PAIN page read a BODY-local faults file")
+
+    monkeypatch.setattr(oled, "_faults_status", local_read_is_forbidden)
+    drawn = []
+    monkeypatch.setattr(oled.amiga, "draw",
+                        lambda frame, text, x, y, size=8: drawn.append(text))
+
+    st = {"ripperdoc_page": "fault",
+          "faults": {"ts": 0.0, "faults": 0, "warns": 1, "rows": []}}
+    oled.Ripperdoc().draw_state(oled.Frame(), 0.0, st)
+
+    assert "NO SWEEP" not in drawn and any("NIGGLE" in d for d in drawn)
+

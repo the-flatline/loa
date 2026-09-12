@@ -135,6 +135,29 @@ def ring_art_bytes(raw, pos=None):
 # nothing, forever, because it only exists on the body. Fetch /twin instead.
 RING_TOPIC = "/dev/shm/loa-ring.bin"
 
+# the body's /twin payload, cached one poll. The ring pane and the frag page
+# both want it and POLL_S is 0.1s — two fetches a tick is two round trips to
+# the Pi for one picture.
+_TWIN_CACHE = {"ts": 0.0, "payload": {}}
+
+
+def twin_payload():
+    """The body's /twin payload — ring bytes, face bytes, status. Never a
+    local file, for the same reason body_state() never reads a local db."""
+    now = time.time()
+    if _TWIN_CACHE["payload"] and now - _TWIN_CACHE["ts"] < POLL_S:
+        return _TWIN_CACHE["payload"]
+    try:
+        payload = _get("/twin") or {}
+    except Exception:
+        payload = {}
+    # only a real /twin answer is worth caching — an empty dict or someone
+    # else's payload (a bare /state, say) would stick for the whole poll.
+    if payload and "status" in payload:
+        _TWIN_CACHE["ts"] = now
+        _TWIN_CACHE["payload"] = payload
+    return payload
+
 
 def body_state():
     """The BODY's state — over HTTP, always.
@@ -164,6 +187,11 @@ def body_state():
         "sense_count": sense.get("count"),
         "pir_last_hold": sense.get("last_hold"),
         "power": raw.get("power") or {},
+        # the body's own seal + sweep state. Both are published files that only
+        # exist ON the body; the console renders the real renderer locally, so
+        # without these the twin draws GONE / NO SWEEP over a healthy body.
+        "faults": raw.get("faults") or {},
+        "frag": (twin_payload().get("status") or {}).get("frag") or {},
     }
 
 
@@ -259,7 +287,7 @@ class RipperdocApp(App):
     def _tick_ring(self):
         """Mirror the body's ring — fetched, not read off a local file."""
         try:
-            raw = base64.b64decode((_get("/twin") or {}).get("ring") or "")
+            raw = base64.b64decode((twin_payload() or {}).get("ring") or "")
         except Exception:
             raw = b""
         if len(raw) < 72:
