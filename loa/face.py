@@ -713,7 +713,7 @@ class Ripperdoc:
         self._indicator(frame, 85, 12, "TMP", st.get("temp_c") is not None)
         self._indicator(frame, 2, 26, "BAR", st.get("pressure_hpa") is not None)
         self._indicator(frame, 39, 26, "SEAL", bool(seal_state(st).get("sealed")))
-        count = st.get("sense_count") or 0
+        count = st.get("pir_count") or 0
         amiga.draw(frame, f"N{count:03d}", 2, 40, size=8)
         amiga.draw(frame, "G17", 44, 40, size=8)
         snr_cm = st.get("snr_cm")
@@ -726,8 +726,8 @@ class Ripperdoc:
         amiga.draw(frame, "PIR", 2, 1, size=8)
         amiga.draw(frame, "2/7", 99, 1, size=8)
         self._indicator(frame, 2, 12, "PIR", bool(st.get("pir_high")))
-        count = st.get("sense_count") or 0
-        last = st.get("sense_ts")
+        count = st.get("pir_count") or 0
+        last = st.get("pir_last_ts")
         age = 0.0 if not last else max(0.0, t - last)
         amiga.draw(frame, f"N{count:03d}", 2, 28, size=8)
         if st.get("pir_high"):

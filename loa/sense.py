@@ -154,14 +154,20 @@ class SensePoller:
         self._last_fire = 0.0
 
     def _default_fire(self):
+        # The driver counts its OWN motion, in memory. It used to ask the cortex
+        # for the count — a driver reaching into another service for a number it
+        # is itself the only source of.
         now = time.time()
-        st = cortex.get_state()
-        n = (st.get("sense_count") or 0) + 1
-        publish({"sense_ts": now, "sense_count": n})
+        self._n = getattr(self, "_n", 0) + 1
+        n = self._n
+        publish({"pir_count": n, "pir_last_ts": now})
         publish_event("sense", {"kind": "pir", "gpio": self.gpio,
                                    "action": "motion", "count": n,
                                    "cooldown": self.cooldown})
-        moods.apply_ring(cortex, "scan")
+        # A scan is a one-shot RECORD now, not a flag written into the cortex:
+        # the ring watches the event topic and plays it. Raising it here used
+        # to mean this driver writing another service's state.
+        publish_event("ring", {"state": "scan"})
 
     def tick(self):
         level = self.reader(self.gpio)
@@ -556,7 +562,8 @@ def main():
     baro_addr = int(str(cfg.get("sense_baro_addr", DEFAULT_BARO_ADDR)), 0)
     baro_period = float(cfg.get("sense_baro_period", DEFAULT_BARO_PERIOD))
     # the N counter is per-boot: a rebooted body starts at zero
-    publish({"sense_count": 0, "snr_count": 0})
+    publish({"pir_count": 0}, topic="pir")
+    publish({"snr_count": 0}, topic="sonar")
     if not snr_enabled:
         # a disabled sonar is silent: no pings, no chirps, no reads
         publish({"snr_cm": None, "snr_ts": None})

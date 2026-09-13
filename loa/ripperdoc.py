@@ -311,7 +311,7 @@ def fetch_sense():
             pwr += " THR!"
     return (f" mood {mood:8s} ring {ring:6s} oled {oled_mode:9s} "
             f"page {page:7s} PIR {pir:5s} SNR {snr:3s} "
-            f"N{st.get('sense_count', 0):04d} T{st.get('pir_last_hold', 0.0):5.1f}s "
+            f"N{st.get('pir_count', 0):04d} T{st.get('pir_last_hold', 0.0):5.1f}s "
             f"{pwr}")
 
 
