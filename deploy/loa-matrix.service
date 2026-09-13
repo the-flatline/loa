@@ -1,0 +1,18 @@
+[Unit]
+Description=loa matrix — the alert light: owns the HT16K33 8x8 on I2C1, holds the body's condition as one glyph
+After=network.target
+
+[Service]
+Type=simple
+# The panel is an OUTPUT: it shows what the body already publishes about itself
+# (the fault topic, the power rails) and nothing else. Quiet by default —
+# brightness 0 is a state, not a failure — and loud when something needs
+# looking at.
+ExecStart=/usr/local/bin/loa-matrix alert
+User=flatline
+Restart=always
+RestartSec=1
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

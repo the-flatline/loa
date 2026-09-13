@@ -14,6 +14,7 @@
 //!
 //! `--bright 0-15` on any of them; `--addr`/`--bus` if the panel moves.
 
+mod alert;
 mod glyphs;
 mod ht16k33;
 mod i2c;
@@ -41,9 +42,12 @@ loa-matrix — the loa 8x8 panel (HT16K33 @ I2C 0x70)
   glyph NAME           show one shape from the vocabulary, held
   demo                 cycle the whole vocabulary, so a human can react
   bench                how fast frames can actually be pushed (fps)
+  vignette             density-as-brightness: solid centre → sparse edge
+  alert [--secs N]     THE ALERT LIGHT: subscribe to the feed, hold the shape
 
   --bright N           panel brightness 0-15 (default 2)
   --loops N            corner test passes (default 3)
+  --secs N             how long `alert` runs; 0 = forever (default 0)
   --rotate D           clockwise rotation for the coordinate API: 0/90/180/270
   --addr 0xNN          chip address (default 0x70)
   --bus N              I2C bus number (default 1)
@@ -54,6 +58,7 @@ fn main() -> std::io::Result<()> {
 
     let mut brightness = 2u8;
     let mut loops = 3u32;
+    let mut secs = 0.0f64;
     let mut rotation = 0u16;
     let mut group = 1u8;
     let mut addr = DEFAULT_ADDR;
@@ -73,6 +78,10 @@ fn main() -> std::io::Result<()> {
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(3)
                     .max(1);
+                i += 2;
+            }
+            "--secs" => {
+                secs = args.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(0.0);
                 i += 2;
             }
             "--rotate" => {
@@ -139,6 +148,18 @@ fn main() -> std::io::Result<()> {
 
     m.rotation = rotation;
 
+    // The alert light owns the panel for as long as it runs; it is the whole
+    // reason this display exists, so it gets its own door out of `main`.
+    if cmd == "alert" {
+        return match alert::run(&mut m, secs, brightness) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                eprintln!("alert: {e}");
+                exit(1);
+            }
+        };
+    }
+
     let result = match cmd {
         "corner" => m.corner_test(Duration::from_millis(450), loops),
         "rows" => m.row_sweep(Duration::from_millis(350), group),
@@ -187,6 +208,7 @@ fn main() -> std::io::Result<()> {
             m.flush()
         }
         "bench" => m.bench(500),
+        "vignette" => m.vignette(),
         "demo" => m.glyph_demo(Duration::from_millis(2500), loops),
         "glyph" => {
             let name = words.get(1).map(String::as_str).unwrap_or("sealed");

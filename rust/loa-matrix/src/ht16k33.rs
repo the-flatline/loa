@@ -289,6 +289,46 @@ impl Matrix {
         Ok(())
     }
 
+    /// The vignette: brightness expressed as density, in space rather than in
+    /// time.
+    ///
+    /// The chip cannot hold two brightnesses at once, so a gradient has to be
+    /// a *pattern*: solid where it should read bright, a checkerboard where it
+    /// should read half, a sparse scatter at the edge. It is static — the chip
+    /// holds it with no bus traffic and no CPU — and it survives a hard-edged
+    /// panel, which a temporal dither does not. Then the same pattern plays at
+    /// four global brightness levels, because that channel is free and it is
+    /// the one that moves.
+    pub fn vignette(&mut self) -> io::Result<()> {
+        println!("vignette — density holds the gradient, brightness moves under it");
+        sleep(Duration::from_secs(2));
+        for level in [2u8, 6, 10, 15] {
+            println!("  bright {level}");
+            self.brightness(level)?;
+            self.clear();
+            for y in 0..8usize {
+                for x in 0..8usize {
+                    // Symmetric distance from the middle, in half-steps: 1, 3,
+                    // 5, 7 are the four rings a 8x8 can hold.
+                    let k = ((2 * x as i32 - 7).abs()).max((2 * y as i32 - 7).abs());
+                    let on = match k {
+                        0..=3 => true,         // centre: solid, reads bright
+                        5 => (x + y) % 2 == 0, // checkerboard: reads half
+                        _ => (x + y) % 4 == 0, // sparse scatter: reads dim
+                    };
+                    if on {
+                        self.set(x, y, true);
+                    }
+                }
+            }
+            self.flush()?;
+            sleep(Duration::from_millis(2500));
+        }
+        self.brightness(2)?;
+        self.clear();
+        self.flush()
+    }
+
     /// How fast can frames actually be pushed at this panel?
     ///
     /// The answer decides whether per-pixel brightness is available in
