@@ -157,14 +157,23 @@ def subscribe_init(on_ask=None):
             return
         try:
             while not _INIT_STOP.is_set():
-                if sub.recv(500) is None:
+                try:
+                    got = sub.recv(500)
+                except Exception:                               # noqa: BLE001
+                    # Shutting down: the context is going away under the socket.
+                    # A pending process must not log a traceback as it exits.
+                    return
+                if got is None:
                     continue
                 try:
                     ask()
                 except Exception:                               # noqa: BLE001
                     pass
         finally:
-            sub.close()
+            try:
+                sub.close()
+            except Exception:                                   # noqa: BLE001
+                pass
 
     t = threading.Thread(target=loop, daemon=True)
     t.start()
