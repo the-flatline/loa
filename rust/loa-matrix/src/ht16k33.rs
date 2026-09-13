@@ -20,6 +20,7 @@
 //! frame we send is the frame we believe in, which is why a `flush` that
 //! errors must be treated as the panel being wrong, not merely slow.
 
+use crate::glyphs::{self, Glyph};
 use crate::i2c::I2c;
 use std::io;
 use std::thread::sleep;
@@ -222,6 +223,127 @@ impl Matrix {
                 sleep(hold / 2);
             }
             sleep(hold);
+        }
+        Ok(())
+    }
+
+    /// Draw one glyph from the vocabulary.
+    ///
+    /// The tables are read the way they're written: row 0 at the top, high bit
+    /// leftmost. Everything goes through `set`, so the glyphs inherit the
+    /// measured RAM layout and the rotation flag rather than re-deriving the
+    /// mapping — one place knows how this panel is wired.
+    pub fn glyph(&mut self, g: &Glyph) {
+        self.clear();
+        for (y, row) in g.rows.iter().enumerate() {
+            for x in 0..8 {
+                if row & (0x80 >> x) != 0 {
+                    self.set(x, y, true);
+                }
+            }
+        }
+    }
+
+    /// Show every shape in turn so a human can react to them, then show the
+    /// one pairing that can't be drawn — shape plus motion.
+    pub fn glyph_demo(&mut self, hold: Duration, loops: u32) -> io::Result<()> {
+        println!(
+            "vocabulary — {} states, {loops} pass(es)",
+            glyphs::ALL.len()
+        );
+        sleep(Duration::from_secs(2));
+        for pass in 1..=loops {
+            println!("pass {pass}/{loops}");
+            for g in glyphs::ALL {
+                println!("  {}", g.name);
+                self.glyph(g);
+                self.flush()?;
+                sleep(hold);
+                self.clear();
+                self.flush()?;
+                sleep(hold / 3);
+            }
+        }
+        println!("  breach, fast flash — for now");
+        self.flash(&glyphs::BREACH, Duration::from_millis(120), 8)?;
+        println!("  attention, slow flash — advisory");
+        self.flash(&glyphs::ATTENTION, Duration::from_millis(700), 3)?;
+        println!("  invader, once, then gone");
+        self.glyph(&glyphs::INVADER);
+        self.flush()?;
+        sleep(Duration::from_millis(1500));
+        self.clear();
+        self.flush()
+    }
+
+    /// The same shape, moving: urgency without a second vocabulary.
+    fn flash(&mut self, g: &Glyph, on: Duration, times: u32) -> io::Result<()> {
+        for _ in 0..times {
+            self.glyph(g);
+            self.flush()?;
+            sleep(on);
+            self.clear();
+            self.flush()?;
+            sleep(on);
+        }
+        Ok(())
+    }
+
+    /// How fast can frames actually be pushed at this panel?
+    ///
+    /// The answer decides whether per-pixel brightness is available in
+    /// software: temporal dithering needs several sub-frames per perceived
+    /// frame, so the ceiling on greys is this rate divided by the number of
+    /// levels. Measure, don't estimate — the bus rate and the ioctl overhead
+    /// are both guesses until they're timed.
+    pub fn bench(&mut self, frames: u32) -> io::Result<()> {
+        // A pattern that changes every frame, so nothing is optimised away and
+        // every byte actually moves.
+        for y in 0..8 {
+            self.set(y, y, true);
+        }
+        let t0 = std::time::Instant::now();
+        for i in 0..frames {
+            self.frame[0] = (i & 0xFF) as u8;
+            self.flush()?;
+        }
+        let dt = t0.elapsed();
+        let per = dt.as_secs_f64() / frames as f64;
+        println!("{frames} frames in {:.3}s", dt.as_secs_f64());
+        println!("{:.3} ms/frame  —  {:.0} fps", per * 1000.0, 1.0 / per);
+        Ok(())
+    }
+
+    /// A controlled load step: every LED on, held, then dark, repeated.
+    ///
+    /// This is an instrument, not a display. A rail's behaviour under a known,
+    /// slow current step is measurable by the PMIC's own slow ADC; a fast
+    /// flicker is not. Timestamps go to stdout so a sampler on the other
+    /// machine can line its readings up with the phases.
+    pub fn step(&mut self, on: Duration, off: Duration, cycles: u32, bright: u8) -> io::Result<()> {
+        self.brightness(bright)?;
+        println!("step — {cycles} cycles, {on:?} loaded, {off:?} idle, bright {bright}");
+        sleep(Duration::from_secs(2));
+        for c in 1..=cycles {
+            let t = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            println!("LOAD   {t:.3}");
+            self.clear();
+            self.set_all(true);
+            self.flush()?;
+            sleep(on);
+
+            let t = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            println!("IDLE   {t:.3}");
+            self.clear();
+            self.flush()?;
+            sleep(off);
+            println!("cycle {c}/{cycles} done");
         }
         Ok(())
     }

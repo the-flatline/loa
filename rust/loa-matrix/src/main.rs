@@ -14,6 +14,7 @@
 //!
 //! `--bright 0-15` on any of them; `--addr`/`--bus` if the panel moves.
 
+mod glyphs;
 mod ht16k33;
 mod i2c;
 
@@ -30,12 +31,16 @@ loa-matrix — the loa 8x8 panel (HT16K33 @ I2C 0x70)
   rows [--group 1|2]   which chip address drives which physical column
   bits                 which bit inside the byte drives which physical row
   walk                 one line down the panel, three passes, no counting
+  step                 controlled load step: all LEDs on/off, for rail measurement
   fill                 all 64 LEDs on
   off                  all 64 LEDs off
   pixel X Y            light one LED, 0-7 each, then exit
   box                  the outline, held
   diag                 the diagonal, held (catches a swapped or reversed axis)
   raw IDX VALUE        hold one raw RAM byte (hex, e.g. raw 0e ff) — diagnostics
+  glyph NAME           show one shape from the vocabulary, held
+  demo                 cycle the whole vocabulary, so a human can react
+  bench                how fast frames can actually be pushed (fps)
 
   --bright N           panel brightness 0-15 (default 2)
   --loops N            corner test passes (default 3)
@@ -139,6 +144,12 @@ fn main() -> std::io::Result<()> {
         "rows" => m.row_sweep(Duration::from_millis(350), group),
         "bits" => m.bit_sweep(Duration::from_millis(350)),
         "walk" => m.walk(Duration::from_millis(1200), loops),
+        "step" => m.step(
+            Duration::from_millis(3000),
+            Duration::from_millis(3000),
+            5,
+            if brightness == 2 { 15 } else { brightness },
+        ),
         "fill" => {
             m.set_all(true);
             m.flush()?;
@@ -174,6 +185,27 @@ fn main() -> std::io::Result<()> {
             sleep(Duration::from_secs(5));
             m.clear();
             m.flush()
+        }
+        "bench" => m.bench(500),
+        "demo" => m.glyph_demo(Duration::from_millis(2500), loops),
+        "glyph" => {
+            let name = words.get(1).map(String::as_str).unwrap_or("sealed");
+            match glyphs::by_name(name) {
+                Some(g) => {
+                    println!("glyph: {}", g.name);
+                    m.glyph(g);
+                    m.flush()?;
+                    sleep(Duration::from_secs(6));
+                    m.clear();
+                    m.flush()
+                }
+                None => {
+                    let names: Vec<&str> = glyphs::ALL.iter().map(|g| g.name).collect();
+                    eprintln!("no such glyph: {name}");
+                    eprintln!("have: {}", names.join(" "));
+                    exit(2);
+                }
+            }
         }
         "raw" => {
             let idx = words
