@@ -1,0 +1,12 @@
+[package]
+name = "loa-matrix"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "loa's matrix panel: owns the HT16K33 8x8 at I2C 0x70, blits the grid it is given"
+
+[dependencies]
+# The I2C door is /dev/i2c-1 + I2C_SLAVE, the same one the Python drivers use.
+# That ioctl is the only thing here that is not std — no smbus, no libi2c, no
+# Adafruit stack, nothing to cross-compile beyond the binary itself.
+libc = "0.2"

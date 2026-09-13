@@ -34,8 +34,7 @@ fn arg(name: &str, default: &str) -> String {
     default.to_string()
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let secs: f64 = arg("--secs", "0").parse().unwrap_or(0.0);
     let spi = arg("--spi", "/dev/spidev1.0");
     let hz: u32 = arg("--hz", &neopixel::DEFAULT_HZ.to_string())
@@ -53,7 +52,7 @@ async fn main() {
     let _ = ring.off();
 
     let endpoints = feed_endpoints();
-    let mut sub = match Subscriber::connect(&endpoints, &["ring"]).await {
+    let mut sub = match Subscriber::connect(&endpoints, &["ring"]) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("loa-ring: no feed at {endpoints:?}: {e}");
@@ -74,11 +73,11 @@ async fn main() {
         }
         // Keep the LAST frame of a batch: a ring replaying a backlog shows a
         // colour the body has already left behind.
-        let batch = match sub.drain().await {
+        let batch = match sub.drain() {
             Ok(b) => b,
             Err(e) => {
                 eprintln!("loa-ring: feed error: {e}");
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                std::thread::sleep(Duration::from_millis(50));
                 continue;
             }
         };
@@ -117,7 +116,7 @@ async fn main() {
             since = Instant::now();
         }
         if empty {
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            std::thread::sleep(Duration::from_millis(1));
         }
     }
     let _ = ring.off();

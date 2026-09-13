@@ -7,7 +7,6 @@ description = "the bench console — Workbench chrome, a live face and ring, mea
 
 [dependencies]
 loa-topic = { path = "../loa-topic" }
-tokio = { workspace = true }
 ratatui = "0.29"
 crossterm = "0.28"
 # Commands go over HTTP, and only commands. Blocking is right here: a keypress

@@ -6,16 +6,13 @@
 # Members are added as each one starts existing: a workspace that names a crate
 # that is not there does not build, and a broken build is worse than a short
 # member list.
-members = ["loa-topic", "loa-panel", "loa-ring", "ripperdoc"]
+members = ["loa-topic", "loa-panel", "loa-ring", "loa-matrix", "ripperdoc"]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-
-[workspace.dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 
 [profile.release]
 # The point of this layer is frames: keep the loop tight, strip what the

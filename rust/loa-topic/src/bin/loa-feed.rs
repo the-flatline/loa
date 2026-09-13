@@ -12,8 +12,7 @@ use std::collections::BTreeMap;
 
 use loa_topic::{body_name, pb, Rate, Subscriber, TOPICS};
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let mut args = std::env::args().skip(1);
     let endpoint = args
         .next()
@@ -24,7 +23,7 @@ async fn main() {
         .unwrap_or(3.0);
 
     println!("loa-feed: subscribing to {endpoint} for {secs}s");
-    let mut sub = match Subscriber::connect(&[endpoint.clone()], &TOPICS).await {
+    let mut sub = match Subscriber::connect(&[endpoint.clone()], &TOPICS) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("connect failed: {e}");
@@ -35,7 +34,7 @@ async fn main() {
     // A SUB has to establish before a PUB will send it anything: a message
     // published before the subscription lands is dropped, silently, and looks
     // like a mute body.
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    std::thread::sleep(std::time::Duration::from_millis(300));
 
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
     let mut newest: BTreeMap<String, String> = BTreeMap::new();
@@ -44,7 +43,7 @@ async fn main() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs_f64(secs);
 
     while std::time::Instant::now() < deadline {
-        match sub.recv_timeout(50).await {
+        match sub.recv_timeout(50) {
             Ok(Some(env)) => {
                 rate.tick();
                 *counts.entry(env.topic.clone()).or_insert(0) += 1;

@@ -7,9 +7,15 @@ description = "loa's wire contract in Rust: the protobuf bindings and the subscr
 
 [dependencies]
 prost = "0.13"
-bytes = "1"
-zeromq = { version = "0.6", default-features = false, features = ["tokio-runtime", "tcp-transport"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+# REAL libzmq, not a reimplementation of ZMTP. The publisher is pyzmq, whose
+# libzmq reassembles ZMTP chunks before Python ever sees a message; a second
+# implementation of those framing rules is a second set of rules — which is how
+# a ~1KB face frame intermittently arrived as three frames instead of two
+# (panel + ring, 2026-09-13/14). Same stack on both ends, one set of rules.
+#
+# zmq-sys builds libzmq from source (zeromq-src) when the system has no copy, so
+# the built daemon is a single static file and the body needs no runtime package.
+zmq = "0.10"
 
 [build-dependencies]
 prost-build = "0.13"

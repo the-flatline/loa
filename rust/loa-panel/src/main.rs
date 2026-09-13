@@ -60,8 +60,7 @@ fn parse_args() -> Args {
     a
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let args = parse_args();
     let mut panel = match Panel::open(&args.spi, args.hz, args.chip) {
         Ok(p) => p,
@@ -75,7 +74,7 @@ async fn main() {
     }
 
     let endpoints = feed_endpoints();
-    let mut sub = match Subscriber::connect(&endpoints, &["ripperdoc"]).await {
+    let mut sub = match Subscriber::connect(&endpoints, &["ripperdoc"]) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("loa-panel: no feed at {:?}: {e}", endpoints);
@@ -104,11 +103,11 @@ async fn main() {
         }
         // Drain what has piled up and keep the LAST frame: a panel that replays
         // a backlog is a panel that gets further and further behind.
-        let batch = match sub.drain().await {
+        let batch = match sub.drain() {
             Ok(b) => b,
             Err(e) => {
                 eprintln!("loa-panel: feed error: {e}");
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                std::thread::sleep(Duration::from_millis(50));
                 continue;
             }
         };
@@ -151,7 +150,7 @@ async fn main() {
                 next += period;
                 let now = Instant::now();
                 if next > now {
-                    tokio::time::sleep(next - now).await;
+                    std::thread::sleep(next - now);
                 } else {
                     next = now;
                 }
@@ -177,7 +176,7 @@ async fn main() {
             last_report = Instant::now();
         }
         if empty {
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            std::thread::sleep(Duration::from_millis(1));
         }
     }
     let _ = RECV_MS;

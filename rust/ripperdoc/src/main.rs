@@ -42,44 +42,39 @@ fn main() {
     // blocks the other.
     let shared = Arc::new(Mutex::new(View::default()));
     let feed_state = Arc::clone(&shared);
+    // A plain thread with a BLOCKING recv (1ms poll), not an async runtime:
+    // the feed is one socket and the draw loop owns the terminal, so there is
+    // nothing here for a runtime to schedule. CONFLATE is on the socket, so the
+    // reader can never fall behind into a backlog.
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("tokio");
-        rt.block_on(async move {
-            let endpoints = feed_endpoints();
-            let mut sub = match Subscriber::connect(
-                &endpoints,
-                &["ripperdoc", "ring", "pir", "sonar", "baro", "weather", "power", "fault"],
-            )
-            .await
-            {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("ripperdoc: no feed at {endpoints:?}: {e}");
-                    return;
+        let topics = ["ripperdoc", "ring", "pir", "sonar", "baro", "weather",
+                      "power", "fault"];
+        let endpoints = feed_endpoints();
+        let mut sub = match Subscriber::connect(&endpoints, &topics) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("ripperdoc: no feed at {endpoints:?}: {e}");
+                return;
+            }
+        };
+        loop {
+            match sub.drain() {
+                Ok(batch) => {
+                    if batch.is_empty() {
+                        std::thread::sleep(Duration::from_millis(1));
+                        continue;
+                    }
+                    let mut v = feed_state.lock().unwrap();
+                    for msg in &batch {
+                        v.apply(&msg.topic, &msg.env);
+                    }
                 }
-            };
-            loop {
-                match sub.drain().await {
-                    Ok(batch) => {
-                        if batch.is_empty() {
-                            tokio::time::sleep(Duration::from_millis(1)).await;
-                            continue;
-                        }
-                        let mut v = feed_state.lock().unwrap();
-                        for msg in &batch {
-                            v.apply(&msg.topic, &msg.env);
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("ripperdoc: feed error: {e}");
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                    }
+                Err(e) => {
+                    eprintln!("ripperdoc: feed error: {e}");
+                    std::thread::sleep(Duration::from_millis(100));
                 }
             }
-        });
+        }
     });
 
     let mut terminal = ratatui::init();

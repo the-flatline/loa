@@ -16,7 +16,7 @@
 //! the version from the message it is about to distrust has nothing to compare
 //! against.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub mod pb {
     include!(concat!(env!("OUT_DIR"), "/loa.rs"));
@@ -89,10 +89,13 @@ pub fn feed_endpoints() -> Vec<String> {
     vec![format!("tcp://{host}:{FEED_PORT}")]
 }
 
-/// One decoded message off the wire.
+/// One decoded message off the wire. `frames` is how many ZMTP frames it
+/// arrived in: 2 is the contract, more means the peer chunked the body and this
+/// is the number it actually took (see `decode`).
 pub struct Envelope {
     pub topic: String,
     pub env: pb::Envelope,
+    pub frames: usize,
 }
 
 impl Envelope {
@@ -116,23 +119,43 @@ impl Envelope {
 }
 
 pub struct Subscriber {
-    sock: zeromq::SubSocket,
+    /// The context must outlive the socket, so it is held here and not made
+    /// per call: dropping a libzmq context closes its sockets.
+    _ctx: zmq::Context,
+    sock: zmq::Socket,
     pub endpoints: Vec<String>,
 }
 
 impl Subscriber {
-    pub async fn connect(endpoints: &[String], topics: &[&str]) -> Result<Self> {
-        use zeromq::Socket;
-        let mut sock = zeromq::SubSocket::new();
+    pub fn connect(endpoints: &[String], topics: &[&str]) -> Result<Self> {
+        let ctx = zmq::Context::new();
+        let sock = ctx.socket(zmq::SUB).map_err(zmq_err)?;
+        sock.set_linger(0).map_err(zmq_err)?;
+        // NEVER REPLAY A BACKLOG — but NOT with ZMQ_CONFLATE. Measured
+        // 2026-09-14: with conflate set on this SUB, libzmq accepted the option
+        // and then delivered ZERO messages (0 in 3s at 120/s on the wire, every
+        // topic empty); with it off, 611 messages in the same 3s. It is
+        // documented for SUB and it fails silently, so it is not used here —
+        // an option that costs the entire feed is worse than the backlog it was
+        // meant to prevent.
+        //
+        // RCVHWM=1 instead: the inbound queue holds one message per pipe, so a
+        // consumer that falls behind has at most one frame waiting and the rest
+        // are dropped at the socket. `drain()` then keeps the LAST of what
+        // arrives, which is the behaviour we actually wanted: a consumer shows
+        // the newest frame it can and never works through old ones.
+        sock.set_rcvhwm(1).map_err(zmq_err)?;
+        if std::env::var("LOA_CONFLATE").is_ok() {
+            sock.set_conflate(true).map_err(zmq_err)?;
+        }
         for t in topics {
-            sock.subscribe(t).await.map_err(|e| Error::Zmq(e.to_string()))?;
+            sock.set_subscribe(t.as_bytes()).map_err(zmq_err)?;
         }
         for ep in endpoints {
-            sock.connect(ep.as_str())
-                .await
-                .map_err(|e| Error::Zmq(e.to_string()))?;
+            sock.connect(ep).map_err(zmq_err)?;
         }
         Ok(Self {
+            _ctx: ctx,
             sock,
             endpoints: endpoints.to_vec(),
         })
@@ -141,27 +164,27 @@ impl Subscriber {
     /// The next message, or None if the timeout expires first.
     ///
     /// The timeout exists so a consumer can do something else between frames
-    /// (draw, blit) without a second thread: a subscriber parked forever in
+    /// (blit, draw) without a second thread: a subscriber parked forever in
     /// recv() cannot notice that a whole second has gone by with no feed.
-    pub async fn recv_timeout(&mut self, ms: u64) -> Result<Option<Envelope>> {
-        use zeromq::SocketRecv;
-        match tokio::time::timeout(Duration::from_millis(ms), self.sock.recv()).await {
-            Err(_) => Ok(None),
-            Ok(Ok(msg)) => Ok(Some(decode(msg)?)),
-            Ok(Err(e)) => Err(Error::Zmq(e.to_string())),
+    pub fn recv_timeout(&mut self, ms: i64) -> Result<Option<Envelope>> {
+        match self.sock.poll(zmq::POLLIN, ms) {
+            Ok(0) => Ok(None),
+            Ok(_) => {
+                let parts = self.sock.recv_multipart(0).map_err(zmq_err)?;
+                Ok(Some(decode(parts)?))
+            }
+            Err(e) => Err(zmq_err(e)),
         }
     }
 
     /// Everything already waiting, oldest first, without blocking.
     ///
-    /// This is how a frame consumer stays on the NEWEST frame instead of
-    /// replaying a backlog: drain what has piled up, keep the last. The Python
-    /// side needed a socket option for this; here it is a loop, and the loop is
-    /// also where the drop count comes from.
-    pub async fn drain(&mut self) -> Result<Vec<Envelope>> {
+    /// With CONFLATE set there is at most one message waiting, so this is a
+    /// shape consumers can still use without knowing which socket option is on.
+    pub fn drain(&mut self) -> Result<Vec<Envelope>> {
         let mut out = Vec::new();
         loop {
-            let got = self.recv_timeout(if out.is_empty() { 1 } else { 0 }).await?;
+            let got = self.recv_timeout(if out.is_empty() { 1 } else { 0 })?;
             match got {
                 Some(env) => out.push(env),
                 None => return Ok(out),
@@ -170,13 +193,22 @@ impl Subscriber {
     }
 }
 
-fn decode(msg: zeromq::ZmqMessage) -> Result<Envelope> {
-    if msg.len() != 2 {
-        return Err(Error::Framing(msg.len()));
+fn zmq_err(e: zmq::Error) -> Error {
+    Error::Zmq(e.to_string())
+}
+
+fn decode(parts: Vec<Vec<u8>>) -> Result<Envelope> {
+    // STRICTLY two frames, and now that is a safe thing to demand: both ends
+    // are libzmq, which reassembles ZMTP chunks before the API sees a message.
+    // The earlier version of this file joined frames 1..n to survive a
+    // three-frame arrival — a symptom of a second implementation of the framing
+    // rules on the other side, not of a fault on the wire. Joining hid it;
+    // counting it names it.
+    if parts.len() != 2 {
+        return Err(Error::Framing(parts.len()));
     }
-    let topic = String::from_utf8_lossy(msg.get(0).expect("len checked")).to_string();
-    let raw = msg.get(1).expect("len checked");
-    let env = pb::Envelope::decode(raw.as_ref())
+    let topic = String::from_utf8_lossy(&parts[0]).to_string();
+    let env = pb::Envelope::decode(parts[1].as_slice())
         .map_err(|e| Error::Zmq(format!("envelope did not decode: {e}")))?;
     if env.schema_version != SCHEMA_VERSION {
         return Err(Error::SchemaMismatch(env.schema_version));
@@ -185,7 +217,11 @@ fn decode(msg: zeromq::ZmqMessage) -> Result<Envelope> {
     if body != topic {
         return Err(Error::TopicMismatch { topic, body });
     }
-    Ok(Envelope { topic, env })
+    Ok(Envelope {
+        topic,
+        env,
+        frames: parts.len(),
+    })
 }
 
 /// The oneof's variant name, as a string — the same name the topic frame must
