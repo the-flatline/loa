@@ -96,7 +96,15 @@ MODE_CLASSES = {
     "ripperdoc": face.Ripperdoc,
 }
 
-_LAST_FACE: dict = {"buf": None}
+_LAST_FACE: dict = {"buf": None, "at": 0.0}
+
+#: Re-assert the face at least this often, even unchanged. The cortex holds the
+#: last face in RAM and cannot ask for it (it does not subscribe to the body it
+#: publishes for), so a cortex restart used to mean NO face on the feed until
+#: something on the glass moved — measured on the body 2026-09-13, the feed
+#: served zero face bytes for minutes while the panel was drawing fine. Faster
+#: than the 2Hz publish, so the cortex is never stale at the tick.
+REASSERT_S = 0.25
 
 BRIGHT = 0xCF
 DIM = 0x18
@@ -206,12 +214,14 @@ def render_loop(display=None, max_frames=None):
 
 
 def _publish_face(frame) -> None:
-    """Send the framebuffer up to the cortex, on CHANGE only.
+    """Send the framebuffer up to the cortex: on CHANGE, and at least every
+    REASSERT_S.
 
-    The daemon redraws 4-30x a second, but a status page is usually identical
-    frame to frame. Sending identical bytes is work the cortex would then have
-    to publish at the tick anyway, so the change check is here, closest to the
-    pixels.
+    The daemon redraws 4-30x a second and a status page is usually identical
+    frame to frame, so sending every frame is work nobody asked for. Change-only
+    was worse: the cortex keeps the last face in RAM and cannot ask for it again,
+    so a cortex restart left the feed serving ZERO face bytes until something on
+    the glass moved.
 
     The frame goes INSIDE a Ripperdoc event — one protobuf message, the raw
     1024 bytes as a field, nothing encoded and nothing beside it.
@@ -220,7 +230,8 @@ def _publish_face(frame) -> None:
     if sock is None:
         return
     buf = bytes(frame.buf)
-    if _LAST_FACE["buf"] == buf:
+    now = time.monotonic()
+    if _LAST_FACE["buf"] == buf and now - _LAST_FACE["at"] < REASSERT_S:
         return
     try:
         msg = topic_mod.pb.Ripperdoc(face=buf)
@@ -228,6 +239,7 @@ def _publish_face(frame) -> None:
     except Exception:                                       # noqa: BLE001
         return
     _LAST_FACE["buf"] = buf
+    _LAST_FACE["at"] = now
 
 
 def _wash(display, frame, secs):

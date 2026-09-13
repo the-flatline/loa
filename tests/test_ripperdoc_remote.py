@@ -103,3 +103,35 @@ def test_the_frag_page_draws_the_bodys_seal_from_the_feed(monkeypatch):
     face.Ripperdoc().draw_state(face.Frame(), 0.0, st)
     assert "SEALED" in drawn and "GONE" not in drawn
     assert "N003" in drawn and "A006" in drawn
+
+
+def test_the_data_path_cannot_quietly_regress_to_http():
+    """The console's live data path is the topic, and it must stay that way.
+
+    This has already regressed once: the code said "feed" all over it while a
+    /state read sat in an action and the Feed parsed a oneof shape the publisher
+    no longer sent, so it delivered nothing and looked like a quiet body. The
+    guard therefore PARSES the module rather than grepping it — a mention of
+    /state in a comment or a docstring must not satisfy the check, and a string
+    that merely looks like a call must not trip it. What is forbidden is the
+    AST: no `_get("/state")`, `_get("/sense")` or `_get("/twin")` call anywhere.
+    Commands go over `_post()`; reads come off the feed.
+    """
+    import ast
+    import pathlib
+
+    tree = ast.parse(pathlib.Path(rd.__file__).read_text())
+    forbidden = {"/state", "/sense", "/twin"}
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Name) and func.id == "_get"):
+            continue
+        for arg in node.args:
+            if isinstance(arg, ast.Constant) and arg.value in forbidden:
+                offenders.append((arg.value, node.lineno))
+    assert not offenders, (
+        "the console is reading live data over HTTP again: %s — the data path "
+        "is the topic, never a poll" % offenders)

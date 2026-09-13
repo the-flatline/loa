@@ -10,12 +10,14 @@ Two faces, one command:
   ripperdoc page <p>   — switch the ripperdoc page
   ripperdoc status     — what the face is doing now
 
-Runs anywhere. Talks to the cortex API over HTTP (`LOA_API_BIND` /
-LOA_API_PORT, default 127.0.0.1:8765) — so point it at the body from dixie
-(`LOA_API_BIND=192.168.1.200`) and it never has to run ON the Pi. It is a
-full-screen redraw loop: on the uncooled Pi at 68% of a core it drove the SoC
-onto its thermal limit (2026-09-12). The body senses and exposes; drawing
-belongs where the CPU is.
+Runs anywhere. Its DATA comes off the topic feed — a ZeroMQ subscription to the
+body's own publisher (`LOA_TOPIC_ENDPOINT`, else `LOA_API_BIND` on the feed's
+port) — so point it at the body from dixie (`LOA_API_BIND=192.168.1.200`) and it
+never has to run ON the Pi. HTTP is for COMMANDS ONLY (`_post` to /ripperdoc,
+/display, /feel); nothing a pane draws is ever fetched. It is a full-screen
+redraw loop: on the uncooled Pi at 68% of a core it drove the SoC onto its
+thermal limit (2026-09-12). The body senses and exposes; drawing belongs where
+the CPU is.
 
 Look: Workbench 1.3 — square corners, gadget title bars, the four-colour
 palette, a CRT backdrop. No rounded corners, no gradients, no spin.
@@ -32,10 +34,8 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Static
 
-from . import cortex
 from . import face
 from . import topic
-from . import oled
 
 DEFAULT_PORT = 8765
 POLL_S = 0.1
@@ -85,8 +85,17 @@ def _post(path, payload):
 
 
 def _get(path):
-    with urllib.request.urlopen(f"{_base()}{path}", timeout=5) as resp:
-        return json.loads(resp.read())
+    """HTTP READS ARE GONE — the console's data arrives on the topic.
+
+    Kept as a tombstone rather than deleted for two reasons. The test suite
+    monkeypatches `ripperdoc._get` to fail loudly, so the name has to exist for
+    the tripwire to be armed; and any future code that reaches for a live HTTP
+    read here fails on the spot instead of quietly polling. Commands are the
+    only thing HTTP is for, and they go through `_post()`.
+    """
+    raise RuntimeError(
+        "no HTTP data path: subscribe to the feed (see loa/topic.py) — "
+        "commands use _post(), reads never do")
 
 
 def _px(frame, x, y):
@@ -138,13 +147,43 @@ def ring_art_bytes(raw, pos=None):
     return "\n".join("".join(row) for row in grid)
 
 
-# the body's ring topic. It is the BODY's path: read it from dixie and you get
-# nothing, forever, because it only exists on the body. Fetch /twin instead.
-RING_TOPIC = "/dev/shm/loa-ring.bin"
+# --------------------------------------------------------------------------- #
+# the feed — the console's ONE source of data
+# --------------------------------------------------------------------------- #
 
-# the body's /twin payload, cached one poll. The ring pane and the frag page
-# both want it and POLL_S is 0.1s — two fetches a tick is two round trips to
-# the Pi for one picture.
+#: The feed's port on the body. The cortex BINDS tcp://0.0.0.0:5556, which is
+#: an address a client cannot reach — so the console connects to the body's
+#: host on this port instead.
+FEED_PORT = 5556
+
+
+def _feed_endpoints():
+    """Where to subscribe. `LOA_TOPIC_ENDPOINT` names it outright; otherwise it
+    is the same host the HTTP door lives behind, on the feed's port (the console
+    runs on dixie, so with `LOA_API_BIND=192.168.1.200` the feed is
+    tcp://192.168.1.200:5556)."""
+    ep = os.environ.get("LOA_TOPIC_ENDPOINT")
+    if ep:
+        return [ep]
+    host = os.environ.get("LOA_API_BIND") or "127.0.0.1"
+    return ["tcp://%s:%d" % (host, FEED_PORT)]
+
+
+def _faults_from(msg):
+    """The fault topic's rows, in the shape the PAIN page renders.
+
+    The rows are STRUCTURED on the wire (level/code/text/face), so nothing here
+    splits a "level|label" string — that parse is exactly what left the page
+    guessing. This only counts them into the faults/warns the panel wants.
+    """
+    rows = [{"level": r.level, "code": r.code, "text": r.text,
+             "face": r.face or r.code} for r in msg.rows]
+    return {"ts": msg.ts or time.time(),
+            "rows": rows,
+            "faults": sum(1 for r in rows if r["level"] == "fault"),
+            "warns": sum(1 for r in rows if r["level"] == "warn")}
+
+
 class Feed:
     """The console's data. ONE source: the topic.
 
@@ -153,9 +192,15 @@ class Feed:
     pub/sub while it is polling, which is exactly what happened here and is why
     Divv had to insist more than once.
 
-    A State message is PARTIAL — each daemon publishes only what it measured —
-    so this MERGES by presence. Replacing the dict would let a motion reading
-    wipe the mood.
+    Subscribes to EVERY topic the cortex publishes and keeps the newest message
+    of each. The readings are PARTIAL — a daemon sends only what it measured —
+    so the merge is by UPDATE, never replace: a motion reading carrying
+    pir_high=false must not wipe the mood.
+
+    The twin comes off two topics and no side-channel: the face (1024 B, 1bpp)
+    rides INSIDE the ripperdoc message, the ring (72 B, 24 px RGB) on the ring
+    topic. Raw bytes, never hex and never base64 — the encoding that drew twelve
+    wrong LEDs and read as a hardware fault.
     """
 
     def __init__(self, endpoints=None):
@@ -167,13 +212,14 @@ class Feed:
         self.error = None
         self.counts = {}
         self.started = time.time()
-        self._sub = topic.Subscriber(endpoints=endpoints)
+        self._sub = topic.Subscriber(endpoints=endpoints or _feed_endpoints(),
+                                     topics=list(topic.TOPICS))
         threading.Thread(target=self._run, daemon=True).start()
 
     def _run(self):
         while True:
             try:
-                env = self._sub.recv(1000)
+                got = self._sub.recv(1000)
             except topic.SchemaMismatch as e:
                 # say so and stop: guessing at a newer schema is how you draw
                 # twelve wrong pixels and blame the hardware
@@ -183,17 +229,54 @@ class Feed:
                 self.error = "%s: %s" % (type(e).__name__, e)
                 time.sleep(1.0)
                 continue
-            if env is None:
+            if got is None:
                 continue
-            which = env.WhichOneof("body")
-            with self._lock:
-                if which == "state":
-                    self.state.update(
-                        _normalise(topic.state_fields_present(env.state)))
-                elif which == "frames":
-                    self.face, self.ring = env.frames.face, env.frames.ring
-                self.last = time.time()
-                self.counts[which] = self.counts.get(which, 0) + 1
+            name, env = got
+            try:
+                with self._lock:
+                    self._ingest(name, env)
+                    self.last = time.time()
+                    self.counts[name] = self.counts.get(name, 0) + 1
+                self.error = None
+            except Exception as e:                              # noqa: BLE001
+                # A message the console cannot read is REPORTED, not swallowed:
+                # a thread that dies on one bad topic and leaves the panes
+                # looking calm is the silent-feed bug with extra steps.
+                self.error = "%s: %s" % (type(e).__name__, e)
+
+    def _ingest(self, name, env):
+        """One topic message into the flat state the pages already speak."""
+        msg = getattr(env, name)
+        if name == "ripperdoc":
+            # The panel, as the body drove it. This is the twin: hold the bytes
+            # and render them, do not re-derive them — the console's copy of the
+            # renderer drifts from the body's the moment either one changes.
+            if msg.HasField("face"):
+                self.face = bytes(msg.face)
+            self.state.update(topic.dict_to_state(name, msg))
+        elif name == "ring":
+            if msg.HasField("ring"):
+                self.ring = bytes(msg.ring)
+        elif name == "power":
+            # rails is a MAP, and a map has no scalar state key in
+            # TOPIC_STATE_MAP — it is carried by hand, as the wire contract says.
+            self.state["power"] = dict(msg.rails)
+            # The builder on the body writes `frag` onto this message, but the
+            # schema has no such field (Power = rails, ts), so the vault's seal
+            # cannot ride the feed yet. Guarded so a schema that adds it works,
+            # and never guessed at in the meantime.
+            frag = getattr(msg, "frag", None)
+            if frag:
+                self.state.update(
+                    _normalise({"frag": {str(k): str(v) for k, v in frag.items()}}))
+        elif name == "fault":
+            self.state["faults"] = _faults_from(msg)
+            if msg.HasField("condition"):
+                self.state["condition"] = msg.condition
+        elif name == "event":
+            return                       # a record, not the body's state
+        else:
+            self.state.update(topic.dict_to_state(name, msg))
 
     def state_copy(self):
         with self._lock:
@@ -205,6 +288,14 @@ class Feed:
 
     def age(self):
         return time.time() - (self.last or self.started)
+
+    @property
+    def arrived(self):
+        """True once any message has landed on the feed."""
+        return self.last > 0.0
+
+    def close(self):
+        self._sub.close()
 
 
 def _normalise(fields):
@@ -257,6 +348,18 @@ def feed():
     return FEED
 
 
+def _wait_for_feed(f, timeout=3.0):
+    """Block until the feed has delivered once, or `timeout` passes.
+
+    A one-shot CLI read (`ripperdoc status`) needs the subscription to have
+    spoken before it can report anything. The console never calls this — a
+    silent feed is a state it draws, not a stall it waits on.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline and not getattr(f, "arrived", f.age() < _FEED_STALE_S):
+        time.sleep(0.05)
+
+
 def body_state():
     """The BODY's state — as it arrives on the topic.
 
@@ -286,14 +389,14 @@ def fetch_sense():
     if f.age() > _FEED_STALE_S:
         # Say it. A console that shows its last picture forever is how you end
         # up trusting a stale reading — the ghost temperature all over again.
-        return "  NO FEED (%.0fs silent)" % f.age()
+        return "  NO FEED — ALL QUIET (%.0fs silent)" % f.age()
     try:
         st = body_state()
     except Exception:
         return "  body unreachable"
     # A console whose feed has not delivered yet says "?" — it does not crash,
     # and it does not invent a body that is not there.
-    page = st.get("ripperdoc_page") or "?"
+    page = st.get("page") or st.get("ripperdoc_page") or "?"
     mood = st.get("mood") or "?"
     ring = st.get("ring_state") or "?"
     oled_mode = st.get("oled_mode") or "?"
@@ -351,53 +454,50 @@ class RipperdocApp(App):
         self._mood_i = 0
 
     def _tick(self):
-        try:
-            st = body_state()
-        except Exception:
-            return
         self.query_one("#status", Static).update(fetch_sense())
-        # face twin: run the real renderer for the current mode
-        frame = face.Frame()
-        mode = st.get("oled_mode") or "off"
-        if mode == "off":
-            frame.clear()
-        else:
-            cls = oled.MODE_CLASSES.get(mode, face.Marquee)
-            try:
-                if mode == "text":
-                    r = cls(st.get("oled_text") or "LOA")
-                else:
-                    r = cls()
-                if hasattr(r, "draw_state"):
-                    r.draw_state(frame, time.time(), st)
-                else:
-                    r.draw(frame, time.time())
-            except Exception:
-                pass
-        self.query_one("#oled-pane", Static).update(oled_art(frame))
-        # ring twin: mirror the body's actual output (the loa frame bus)
+        self._tick_oled()
         self._tick_ring()
 
-    def _tick_ring(self):
-        """Mirror the body's ring — fetched, not read off a local file.
+    def _tick_oled(self):
+        """The panel, as the body drove it — the face arrives on the feed.
 
-        /twin carries the ring as HEX (the face is base64). Decode it as
-        base64 and you get 108 bytes of plausible-looking rubbish that draws
-        twelve wrong pixels — and looks like a body fault.
+        The bytes ride INSIDE the ripperdoc message (1024 B, 1bpp). Drawing them
+        beats re-running the renderer here: the console's copy of the renderer
+        drifts from the body's the moment either changes, and a twin that
+        re-derives the picture is a second implementation wearing the first
+        one's name. A feed with no face yet SAYS so — it does not draw a healthy
+        body out of nothing.
         """
-        try:
-            raw = bytes.fromhex((twin_payload() or {}).get("ring") or "")
-        except Exception:
-            raw = b""
+        face_b, _ring = feed().frames()
+        if len(face_b) != face.WIDTH * face.PAGES:
+            self.query_one("#oled-pane", Static).update(
+                "[orange]NO FEED — the panel has not arrived[/]")
+            return
+        frame = face.Frame()
+        frame.buf[:] = face_b
+        self.query_one("#oled-pane", Static).update(oled_art(frame))
+
+    def _tick_ring(self):
+        """Mirror the body's ring — RAW bytes off the ring topic.
+
+        The ring arrives as 72 raw bytes (3 per LED, 24 LEDs), so it is passed
+        straight through: never decoded as hex, never as base64. A base64 decode
+        of a hex frame drew twelve wrong LEDs and read as a hardware fault.
+        Nothing has arrived yet and the pane says RING OFFLINE.
+        """
+        _face, raw = feed().frames()
         if len(raw) < 72:
             self.query_one("#ring-pane", Static).update(
                 "[red]RING OFFLINE[/]\n" + ring_art_bytes(bytes(72)))
             return
-        self.query_one("#ring-pane", Static).update(ring_art_bytes(raw))
+        self.query_one("#ring-pane", Static).update(ring_art_bytes(raw[:72]))
 
     def action_ripperdoc(self):
+        """Toggle console mode. The current value comes off the FEED — the
+        panel's own report — never off a /state read."""
         try:
-            _post("/ripperdoc", {"on": not _get("/state").get("ripperdoc", False)})
+            on = bool(body_state().get("ripperdoc"))
+            _post("/ripperdoc", {"on": not on})
         except Exception:
             pass
 
@@ -453,7 +553,8 @@ class RipperdocApp(App):
         """
         try:
             st = body_state()
-            _post("/display", {"flip": not bool(st.get("oled_flip", True))})
+            _post("/display", {"flip": not bool(st.get("oled_flip",
+                                                       face.DEFAULT_FLIP))})
         except Exception:
             pass
 
@@ -498,9 +599,19 @@ def main():
             r = _post("/ripperdoc", {"page": page})
             print(f"page {r['page']}")
         elif cmd == "status":
-            st = _get("/state")
-            print(f"ripperdoc {'ON' if st['ripperdoc'] else 'OFF'} · "
-                  f"page {st['ripperdoc_page']} · oled {st['oled']['mode']}")
+            # A READ, so it comes off the feed like everything else — there is
+            # no /state to ask. Wait for the subscription to speak once.
+            f = feed()
+            _wait_for_feed(f)
+            if f.error:
+                print(f"ripperdoc: FEED ERROR: {f.error}", file=sys.stderr)
+                return 1
+            if f.age() > _FEED_STALE_S:
+                print(f"ripperdoc: NO FEED — ALL QUIET ({f.age():.0f}s silent)")
+                return 1
+            st = f.state_copy()
+            print(f"ripperdoc {'ON' if st.get('ripperdoc') else 'OFF'} · "
+                  f"page {st.get('page', '?')} · oled {st.get('oled_mode', '?')}")
         else:
             print(f"unknown command: {cmd}")
             return 2
