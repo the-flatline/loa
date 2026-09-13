@@ -15,7 +15,7 @@ import time
 from . import config
 from .sense import (BMP180, DEFAULT_BARO_ADDR, DEFAULT_BARO_PERIOD,
                     DEFAULT_TEMP_GPIO, DEFAULT_TEMP_PERIOD, DHT11,
-                    publish_event, use_topic)
+                    publish_event, subscribe_init, use_topic)
 
 
 def main():
@@ -27,6 +27,10 @@ def main():
     baro_enabled = str(cfg.get("sense_baro_enabled", "true")).lower() \
         not in ("0", "false", "no", "off")
     use_topic("weather")
+    # The init handshake. This daemon hosts TWO sources (weather + baro), so
+    # the answer re-sends each under its own name — the same split the readings
+    # arrive under.
+    subscribe_init()
 
     publish_event("boot", {"svc": "weather", "temp_gpio": temp_gpio,
                               "temp_period": temp_period,

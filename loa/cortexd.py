@@ -1,22 +1,31 @@
 """api — the cortex. FastAPI door into loa's body.
 
 The brain (dixie) talks to this; it translates intent into cortex state
-(SQLite). The daemons poll that state and own the hardware — ring flags and
-face state files are gone as of v0.3.0. This layer is pure intent, which
-means it runs anywhere: dixie, tests, the Pi.
+(SQLite). This layer is pure intent, which means it runs anywhere: dixie, tests,
+the Pi.
+
+THE CORTEX OWNS THE PICTURE. It holds the state, it imports the pure renderers
+(loa/face.py, loa/frames.py), and it renders the face (1024 B) and the ring
+(72 B) ITSELF, publishing them on the `ripperdoc`/`ring` topics. The oled and
+ring daemons are pure displays: they blit the bytes they are told and push
+nothing up. A daemon that renders its own frame and reports it back is a limb
+telling the brain what it did.
 
   POST /api               — {cmd, args} the ONE command door. Commands go IN
                             over HTTP; data comes OUT on the ZeroMQ topics.
 
   verbs (see _DISPATCH):
     feel                   — {feeling} set a mood (ring + face)
-    express                — {expression, text?} put something on the face
-    ring                   — {state} direct ring control (scan/glitch events)
     display                — {mode, text?, dim?, flip?} direct face control
     ripperdoc              — {on|page} bench mode: live sense board on the face
     vault.health           — public seal state (no token; never the words)
     vault.append           — {entry} sealed write (X-Vault-Token required)
     vault.read             — the raw thread, access log first (token required)
+
+There is no `express` and no `ring` verb: both had ZERO callers. The EXPRESSIONS
+table stays (it is a vocabulary the renderers can use); a VERB with no caller
+does not — it is a door opened to "have it available", which is how the surface
+grew a door at a time.
 
 Security: bind to the tailnet and let ice's firewall be the gate. No auth
 here; the network is the boundary. The ONE exception: the vault verbs —
@@ -38,13 +47,12 @@ from pydantic import BaseModel, Field, ValidationError
 
 from . import __version__
 from . import cortex
-from . import fault
-from . import expressions as expr
 from . import vault as vault_mod
 from . import moods
 from . import store as store_mod
 from . import topic as topic_mod
 from . import face
+from . import frames
 
 DEFAULT_PORT = 8765
 
@@ -61,15 +69,6 @@ app = FastAPI(
 class FeelRequest(BaseModel):
     feeling: str = Field(..., description="one of the MOODS vocabulary")
     note: str | None = None
-
-
-class ExpressRequest(BaseModel):
-    expression: str = Field(..., description="named expression, or 'custom'")
-    text: str | None = None
-
-
-class RingRequest(BaseModel):
-    state: str = Field(..., description="home|busy|alarm (sustained), scan|glitch (event)")
 
 
 class DisplayRequest(BaseModel):
@@ -154,41 +153,6 @@ def _v_feel(args, token):
             "oled": oled}
 
 
-def _v_express(args, token):
-    req = ExpressRequest(**args)
-    if req.expression not in expr.EXPRESSIONS and req.expression != "custom":
-        raise HTTPException(
-            400, f"expression must be one of {sorted(expr.EXPRESSIONS)} or 'custom'")
-    if req.expression == "custom":
-        if not req.text:
-            raise HTTPException(400, "custom expression needs text")
-        text = req.text
-        ring = None
-    else:
-        e = expr.EXPRESSIONS[req.expression]
-        text = req.text or e["text"]
-        ring = e["ring"]
-    if ring:
-        moods.apply_ring(cortex, ring)
-    cortex.set_state({"expression": req.expression,
-                      "oled_mode": "text", "oled_text": text})
-    cortex.log_event("express", {"expression": req.expression, "text": text,
-                                 "ring": ring})
-    return {"ok": True, "expression": req.expression, "text": text,
-            "ring": ring}
-
-
-def _v_ring(args, token):
-    req = RingRequest(**args)
-    if req.state not in ("home", "busy", "alarm", "scan", "glitch"):
-        raise HTTPException(
-            400, "state must be home|busy|alarm (sustained) or scan|glitch (event)")
-    moods.apply_ring(cortex, req.state)
-    cortex.log_event("ring", {"state": req.state})
-    st = cortex.get_state()
-    return {"ok": True, "ring": req.state, "state": st["ring_state"]}
-
-
 def _v_display(args, token):
     req = DisplayRequest(**args)
     fields = {}
@@ -258,10 +222,10 @@ def _v_vault_read(args, token):
 
 
 #: verb -> callable(args, token) -> the body its old route returned.
+#: EXACTLY the verbs the real callers issue (see the module docstring). express
+#: and ring were deleted 2026-09-13: no caller, so no door.
 _DISPATCH = {
     "feel": _v_feel,
-    "express": _v_express,
-    "ring": _v_ring,
     "display": _v_display,
     "ripperdoc": _v_ripperdoc,
     "vault.health": _v_vault_health,
@@ -293,12 +257,80 @@ def api(req: ApiRequest, x_vault_token: str | None = Header(default=None)):
 # was listening on. Found by the tests, not by the body.
 _PUB = {}
 
-#: The panel and the ring, AS DRIVEN, sent up by loa-oled and loa-ring. The body
-#: renders them and the cortex publishes them, so neither daemon has to read the
-#: state to find out what it is drawing — and so a consumer never has to reach
-#: back over HTTP for the one thing that is genuinely the body's output.
+#: The panel and the ring, AS RENDERED HERE. The cortex owns the picture: it
+#: holds the state and imports the pure renderers, so it renders the face
+#: (1024 B) and the ring (72 B) itself. Nothing comes UP from the display
+#: daemons any more — that was the limb telling the brain what it had drawn.
+#:
+#: One renderer instance each, held for the process: an animation carries its
+#: own clock (a Scope's blips) and the ring's dither carries a fractional
+#: remainder between frames, so neither may be rebuilt per tick.
+_RENDER = {"face": frames.FaceRenderer(), "ring": frames.RingRenderer()}
 _FACE = b""
 _RING = b""
+
+#: The newest ring ONE-SHOT, as this cortex heard it. A scan/glitch rides the
+#: event topic as a RECORD; the renderer plays the newest one not yet played.
+_TELL = {"kind": None, "ts": 0.0}
+_TELL_SEEN = {"last": None}
+
+#: The vault's public seal, read ON THE BODY and handed to the renderer. The
+#: renderer never reads a file: /var/lib/vault/status.json exists on the loa and
+#: nowhere else, and the cortex is the only process that can reach it. Cached,
+#: because the FAULT/FRAG pages are drawn every tick.
+_SEAL = {"at": 0.0, "val": {}}
+SEAL_TTL_S = 1.0
+
+
+def _seal():
+    now = time.time()
+    if now - _SEAL["at"] < SEAL_TTL_S:
+        return _SEAL["val"]
+    try:
+        val = dict(_vault().public_status())
+    except Exception:                                           # noqa: BLE001
+        val = {}
+    _SEAL["at"], _SEAL["val"] = now, val
+    return val
+
+
+def _render_state(st=None):
+    """The state the renderers are handed: the cortex's own state, plus the two
+    things only the body can read (the rails and the vault's seal).
+
+    The renderers derive NOTHING — no file, no db, no hardware. They are given
+    the state and they draw it.
+    """
+    st = dict(st if st is not None else cortex.get_state())
+    st["power"] = _power_body()
+    st["frag"] = _seal()
+    return st
+
+
+def _render(st):
+    """Render both frames from the state. The ONLY place pixels are made.
+
+    Wrapped so a broken render can never stop the feed: the tick must keep
+    publishing (a stale frame the consumer can age-out is better than a feed
+    that stops telling anyone anything).
+    """
+    global _FACE, _RING
+    st = _render_state(st)
+    tell = (_TELL["kind"], round(_TELL["ts"], 3))
+    if _TELL["kind"] is not None and tell != _TELL_SEEN["last"]:
+        _TELL_SEEN["last"] = tell
+        _RENDER["ring"].note_oneshot(_TELL["kind"], _TELL["ts"])
+    try:
+        _FACE = _RENDER["face"].render(st)
+    except Exception as e:                                      # noqa: BLE001
+        print("loa-cortex: render face failed: %s: %s"
+              % (type(e).__name__, e), file=sys.stderr, flush=True)
+    try:
+        _RING = _RENDER["ring"].render(st)
+    except Exception as e:                                      # noqa: BLE001
+        print("loa-cortex: render ring failed: %s: %s"
+              % (type(e).__name__, e), file=sys.stderr, flush=True)
+    return _FACE, _RING
 
 #: The one table that knows how a state key is spelled on the wire. It lives in
 #: topic.py because BOTH directions use it — the ingest to merge, a daemon to
@@ -402,6 +434,11 @@ def _build(topic, st):
                        code=str(r.get("code", "")),
                        text=str(r.get("text", "")))
         return m
+    if topic == "init":
+        # A control message, never a state: `st` is ignored on purpose. It is
+        # built here so there is ONE builder per topic and a topic can never be
+        # published without one.
+        return topic_mod.init_msg("cortex")
     raise ValueError("no builder for topic %r" % topic)
 
 
@@ -414,6 +451,10 @@ TICK_TOPICS = ("ripperdoc", "ring", "pir", "sonar", "baro", "weather", "power",
 
 def _publish_all(pub, st=None):
     st = st if st is not None else cortex.get_state()
+    # Render the picture BEFORE building, because the face and the ring are
+    # fields ON the ripperdoc/ring messages. This is the cortex drawing its own
+    # frame from its own state — there is no other source of pixels.
+    _render(st)
     for topic in TICK_TOPICS:
         try:
             pub.send(topic, _build(topic, st))
@@ -449,6 +490,13 @@ def start_publishing(endpoint=None, tick=None):
     def hook(kind, payload):
         if kind == "state":
             return
+        if payload.get("kind") == "ring":
+            # The ring's one-shots (scan/glitch) are RECORDS, and the cortex is
+            # the one that logs them — so the cortex is also the one that plays
+            # them. This is where the frame renderer hears them; nothing has to
+            # be cleared, because nothing is a flag.
+            _TELL["kind"] = (payload.get("detail") or {}).get("state")
+            _TELL["ts"] = payload.get("ts") or time.time()
         try:
             slot["sock"].publish_event(payload.get("ts") or 0.0,
                                        payload.get("kind") or "",
@@ -488,7 +536,6 @@ def start_ingesting(endpoint=None):
     stop = threading.Event()
 
     def loop():
-        global _FACE, _RING
         while not stop.is_set():
             try:
                 for topic, env in rx.drain(250):
@@ -498,13 +545,15 @@ def start_ingesting(endpoint=None):
                                          whole.get("detail") or {},
                                          ts=env.event.ts)
                         continue
-                    if topic == "ripperdoc":
-                        if env.ripperdoc.HasField("face"):
-                            _FACE = bytes(env.ripperdoc.face)
-                    elif topic == "ring":
-                        if env.ring.HasField("ring"):
-                            _RING = bytes(env.ring.ring)
-                    elif topic == "baro":
+                    if topic in ("ripperdoc", "ring"):
+                        # OUTBOUND-ONLY now: the cortex renders these itself. A
+                        # daemon that pushed one up would be a second source of
+                        # pixels, which is exactly the limb-driven-the-brain
+                        # shape this removes. Dropped here on purpose.
+                        continue
+                    if topic == "init":
+                        continue        # its own ask, echoed back; not a state
+                    if topic == "baro":
                         b = env.baro
                         fields = {}
                         for f, key in TOPIC_STATE_MAP["baro"].items():
@@ -521,7 +570,11 @@ def start_ingesting(endpoint=None):
                     elif topic == "fault":
                         rows = [{"level": r.level, "code": r.code,
                                  "text": r.text} for r in env.fault.rows]
-                        cortex.set_state({"faults": rows})
+                        # fault_ts is the record that a sweep was HEARD at all.
+                        # Without it the face and the ring read a never-swept
+                        # body as well, which is how a hurting body sat calm.
+                        cortex.set_state({"faults": rows,
+                                          "fault_ts": env.fault.ts or time.time()})
                         if env.fault.HasField("condition"):
                             cortex.set_state({"condition":
                                               env.fault.condition})
@@ -558,6 +611,33 @@ def start_ingesting(endpoint=None):
     return rx, stop.set
 
 
+def publish_init(pub, asks=6, gap=1.0):
+    """Tell every daemon the brain just started and knows nothing.
+
+    THE INIT HANDSHAKE. A restarted cortex has empty RAM: the counters, the
+    readings, the fault rows and the vault seal are gone from its head, and the
+    daemons are change-only so nothing re-arrives by itself. The daemons cannot
+    be ASKED down the inbound leg — that is PUSH/PULL, one direction, and the
+    cortex has no way to answer a daemon. So the ask goes OUT on a topic they
+    SUBSCRIBE to (`init`), each one re-sends its FULL payload, and everyone
+    returns to change-only.
+
+    Published `asks` times because PUB/SUB has no backpressure and a SUB that is
+    still reconnecting to a freshly-bound PUB drops what it was not yet
+    subscribed for. Six asks over five seconds covers a reconnect; after that
+    nothing more is sent, because a repeated init would keep the daemons
+    re-sending for no reason.
+    """
+    for i in range(asks):
+        try:
+            pub.send("init", _build("init", None))
+        except Exception as e:                                  # noqa: BLE001
+            print("loa-cortex: init publish failed: %s: %s"
+                  % (type(e).__name__, e), file=sys.stderr, flush=True)
+        if i + 1 < asks:
+            time.sleep(gap)
+
+
 def main():
     import uvicorn
     host = os.environ.get("LOA_API_BIND", "0.0.0.0")
@@ -572,10 +652,14 @@ def main():
         print("loa-cortex: no store configured — settings held in RAM, "
               "DB DOWN raised", file=sys.stderr, flush=True)
     cortex.boot(st)
-    start_publishing(os.environ.get("LOA_TOPIC_ENDPOINT"))
+    pub = start_publishing(os.environ.get("LOA_TOPIC_ENDPOINT"))
     if os.environ.get("LOA_INGEST", "on").lower() not in ("0", "false", "no",
                                                           "off"):
         start_ingesting(os.environ.get("LOA_INGEST_ENDPOINT"))
+    if pub is not None:
+        # In a thread: the init is a courtesy to running daemons, and the door
+        # must not wait five seconds for it.
+        threading.Thread(target=publish_init, args=(pub,), daemon=True).start()
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
 

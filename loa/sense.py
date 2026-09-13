@@ -101,7 +101,79 @@ def publish(fields, topic=None):
     if where is None:
         return cortex.set_state(fields)
     from .topic import partial
+    _LAST.setdefault(where, {}).update(fields)
     sender_for(where).send(where, partial(where, fields))
+
+
+#: What each topic last carried. A daemon cannot know its own full payload from
+#: the wire, so it remembers what it published — that memory is what the init
+#: handshake re-sends.
+_LAST: dict = {}
+
+
+def republish_full():
+    """Re-send every topic's accumulated fields — the answer to an init.
+
+    The cortex restarted with empty RAM and ASKED; a sensor answers with its
+    whole current state, not a change. Grouped by topic because loa-weather
+    hosts two sources under two names (weather and baro).
+    """
+    for where, fields in list(_LAST.items()):
+        if not fields:
+            continue
+        try:
+            if _TOPIC is None:
+                cortex.set_state(fields)
+                continue
+            from .topic import partial
+            sender_for(where).send(where, partial(where, fields))
+        except Exception:                                       # noqa: BLE001
+            pass
+
+
+#: The init listener's stop handle.
+_INIT_STOP = threading.Event()
+
+
+def subscribe_init(on_ask=None):
+    """Hear the cortex's init and answer it with a full payload.
+
+    The daemons PUSH up and the cortex PULLs, so the cortex cannot ask anything
+    down that leg — that is what "ZMQ is directional" means here. The ask
+    travels the OTHER way, out on the `init` topic, so a daemon that expects to
+    be asked holds a SUB socket as well as its PUSH one.
+
+    Without it, a restarted cortex is blind to every change-only sensor until
+    something happens to move: it knows nothing about the body it just became.
+    """
+    from .topic import Subscriber
+    ask = on_ask or republish_full
+    _INIT_STOP.clear()
+
+    def loop():
+        try:
+            sub = Subscriber(topics=["init"])
+        except Exception:                                       # noqa: BLE001
+            return
+        try:
+            while not _INIT_STOP.is_set():
+                if sub.recv(500) is None:
+                    continue
+                try:
+                    ask()
+                except Exception:                               # noqa: BLE001
+                    pass
+        finally:
+            sub.close()
+
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+    return t
+
+
+def stop_init():
+    """Stop the init listener (tests; a daemon runs until it is killed)."""
+    _INIT_STOP.set()
 
 
 def publish_event(kind, detail=None, ts=None):

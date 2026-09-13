@@ -21,6 +21,9 @@ messages broke the one-message contract (keep the last message, render it).
     pir sonar baro weather
     fault                what hurts
     event                something happened — a record
+    init                 a control message: the cortex asking every daemon to
+                         re-send its full payload (a restarted brain knows
+                         nothing). NOT a ticked state — it goes out on start.
 
 THE TICK. The cortex republishes EVERY topic on a fixed tick (TICK_S) and again
 immediately when something changes. Two triggers, one path.
@@ -46,7 +49,8 @@ rather than decode.
 
 Four socket roles, because the direction of data differs:
   Publisher  (PUB)  — the cortex, and only the cortex
-  Subscriber (SUB)  — every consumer
+  Subscriber (SUB)  — every consumer, AND every daemon (each one subscribes to
+                      `init` so a restarted cortex can ask it to report)
   Sender     (PUSH) — the daemons feeding the cortex
   Receiver   (PULL) — the cortex collecting from the daemons
 
@@ -68,12 +72,17 @@ from .pb import loa_pb2 as pb
 #: v5: topics. Each message rides as [topic name][Envelope]; one message per
 #: topic, the face bytes INSIDE the ripperdoc message, and a `fault` topic so a
 #: consumer never has to split a "level|label" string to find out what hurts.
-SCHEMA_VERSION = 7
+#: v8: the `init` control topic — a restarted cortex asks every daemon for its
+#: full payload (out on a topic they subscribe to; the inbound leg is PUSH/PULL
+#: and cannot be asked).
+SCHEMA_VERSION = 8
 
 #: Every topic the cortex publishes. The oneof field names in proto/loa.proto
 #: match these exactly — that is what lets topic_payload() stay generic.
+#: `init` is here because it IS a topic a consumer can be interested in; it is
+#: simply never ticked (a control message is not a state).
 TOPICS = ("ripperdoc", "ring", "pir", "sonar", "baro", "weather", "power",
-          "fault", "event")
+          "fault", "event", "init")
 
 #: 2Hz. Every topic goes out this often, changed or not.
 TICK_S = 0.5
@@ -229,6 +238,9 @@ TOPIC_STATE_MAP = {
                 "count": "temp_count"},
     "fault": {"condition": "condition"},
     "ring": {},
+    # A control topic: it carries no state, so there is nothing to map. Listed
+    # so the generic helpers (partial/dict_to_state) cannot silently skip it.
+    "init": {},
 }
 
 
@@ -270,6 +282,17 @@ def event(ts, kind, detail=None):
     """
     return pb.Event(ts=float(ts), kind=str(kind),
                     detail={str(k): str(v) for k, v in (detail or {}).items()})
+
+
+def init_msg(source="cortex", ts=None):
+    """The init ask, always for the `init` topic.
+
+    The cortex publishes this when it starts (and a few more times, so a daemon
+    whose SUB has not finished reconnecting still hears it). Every daemon hears
+    it and re-sends its FULL payload; then everyone is back to change-only.
+    """
+    return pb.Init(source=str(source), ts=float(ts if ts is not None
+                                                  else time.time()))
 
 
 def dict_to_state(topic, msg):

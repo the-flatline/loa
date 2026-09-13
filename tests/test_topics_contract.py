@@ -31,6 +31,9 @@ CARRIED_BY_HAND = {
     "power": {"rails", "frag", "ts"},
     "fault": {"rows", "ts"},
     "event": {"ts", "kind", "detail"},
+    # A control message, not a state: nothing to map, and it never rides the
+    # tick (see test_the_init_is_not_a_state).
+    "init": {"source", "ts"},
 }
 
 

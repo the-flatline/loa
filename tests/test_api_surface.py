@@ -20,7 +20,7 @@ import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-from loa import cortex, cortexd, expressions as expr, face, vault as vault_mod
+from loa import cortex, cortexd, face, vault as vault_mod
 from loa import moods
 
 #: Every path that used to be a door. None may answer again.
@@ -30,9 +30,12 @@ DELETED_PATHS = (
     "/health",
 )
 
-#: The verbs, verbatim and complete.
+#: The verbs, verbatim and complete — exactly what the real callers issue.
+#: `express` and `ring` are gone (2026-09-13): both had ZERO callers. The
+#: vocabulary behind them (EXPRESSIONS) stays for the renderers; a DOOR with no
+#: caller does not.
 VERBS = {
-    "feel", "express", "ring", "display", "ripperdoc",
+    "feel", "display", "ripperdoc",
     "vault.health", "vault.append", "vault.read",
 }
 
@@ -142,39 +145,38 @@ def test_feel_rejects_a_bad_value(client):
     assert r.json()["detail"] == f"feeling must be one of {sorted(moods.MOODS)}"
 
 
-def test_express(client):
-    r = client.post("/api", json={"cmd": "express",
-                                  "args": {"expression": "happy"}})
-    assert r.status_code == 200, r.text
-    assert r.json()["expression"] == "happy" and r.json()["ok"] is True
+def test_a_verb_with_no_caller_does_not_exist(client):
+    """Divv, verbatim: \"GET RID OF THEM!!!!!!!\" — express and ring had ZERO
+    callers. The door must refuse them by NAME now, and the dispatcher must not
+    even hold the handler: a removed verb that still answers is a verb."""
+    for gone in ("express", "ring"):
+        r = client.post("/api", json={"cmd": gone, "args": {}})
+        assert r.status_code == 400, f"{gone} still answers"
+        assert gone not in cortexd._DISPATCH
+        assert not hasattr(cortexd, f"_v_{gone}"), (
+            f"the {gone} handler is still in the module — dead code beside a "
+            f"door is how the door comes back")
 
 
-def test_express_custom_needs_text(client):
-    r = client.post("/api", json={"cmd": "express",
-                                  "args": {"expression": "custom"}})
-    assert r.status_code == 400
-    assert r.json()["detail"] == "custom expression needs text"
+def test_the_console_issues_only_verbs_that_exist():
+    """The verb list is exactly what the callers issue. Scanning the console's
+    own `_post(...)` calls is the closest thing to "the callers" the repo holds:
+    a verb it posts that the door does not have is a 400 at the bench."""
+    import ast
+    import pathlib
 
-
-def test_express_rejects_a_bad_value(client):
-    r = client.post("/api", json={"cmd": "express",
-                                  "args": {"expression": "nope"}})
-    assert r.status_code == 400
-    assert r.json()["detail"] == (
-        f"expression must be one of {sorted(expr.EXPRESSIONS)} or 'custom'")
-
-
-def test_ring(client):
-    r = client.post("/api", json={"cmd": "ring", "args": {"state": "scan"}})
-    assert r.status_code == 200, r.text
-    assert r.json()["ok"] is True and r.json()["ring"] == "scan"
-
-
-def test_ring_rejects_a_bad_value(client):
-    r = client.post("/api", json={"cmd": "ring", "args": {"state": "nope"}})
-    assert r.status_code == 400
-    assert r.json()["detail"] == (
-        "state must be home|busy|alarm (sustained) or scan|glitch (event)")
+    src = (pathlib.Path(__file__).resolve().parent.parent
+           / "loa" / "ripperdoc.py").read_text()
+    issued = set()
+    for node in ast.walk(ast.parse(src)):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "_post" and node.args
+                and isinstance(node.args[0], ast.Constant)):
+            issued.add(node.args[0].value)
+    assert issued, "the console issues no verbs — the scan is broken, not the app"
+    assert issued <= set(cortexd._DISPATCH), (
+        "the console issues verbs the door does not have: %s"
+        % sorted(issued - set(cortexd._DISPATCH)))
 
 
 def test_display(client):

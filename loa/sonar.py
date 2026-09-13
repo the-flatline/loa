@@ -8,7 +8,7 @@ import time
 
 from . import config
 from .sense import (DEFAULT_ECHO, DEFAULT_SNR_PERIOD, DEFAULT_TRIG, Sonar,
-                    publish, publish_event, use_topic)
+                    publish, publish_event, subscribe_init, use_topic)
 
 
 def main():
@@ -19,6 +19,9 @@ def main():
     enabled = str(cfg.get("sense_snr_enabled", "true")).lower() \
         not in ("0", "false", "no", "off")
     use_topic("sonar")
+    # The init handshake: a restarted cortex has forgotten the last range, and
+    # the sonar is change-only — it must be ASKED for its full payload.
+    subscribe_init()
 
     publish({"snr_count": 0})
     if not enabled:

@@ -54,6 +54,10 @@ DEFAULTS = {
     "temp_c": None, "hum_pct": None, "temp_ts": None,
     "pressure_hpa": None, "baro_temp_c": None, "baro_ts": None,
     "condition": "well",
+    #: When the fault sweep was last HEARD. Not the same as `condition`: a body
+    #: that has never been swept has no condition at all, and reading that
+    #: silence as "well" is what let a body sit hurting with a calm face.
+    "fault_ts": None,
     "baro_trend": "steady", "baro_series": [],
     "faults": [], "power": {}, "frag": {},
     "updated_at": 0.0,

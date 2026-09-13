@@ -61,8 +61,6 @@ change shape.
 | Verb | Args | Effect |
 |---|---|---|
 | `feel` | `{"feeling": "calm"}` | set a mood (ring + face) |
-| `express` | `{"expression": "happy"}` or `{"expression":"custom","text":"..."}` | face says something |
-| `ring` | `{"state": "scan"}` | direct ring: home/busy/alarm, scan/glitch events |
 | `display` | `{"mode": "ecg", "dim": true}` | direct face control |
 | `ripperdoc` | `{"on": true}` / `{"page": "pir"}` | bench mode: face becomes live sense status board |
 | `vault.health` | — | public seal state of the vault (no token) |

@@ -13,15 +13,11 @@ Two layers, same split as ring.py/animations.py:
 The flatline signature lives here: the default "scope" animation is a flat
 line with occasional blips. Because that is what I am.
 """
-import json
 import math
-import os
 import random
 import time
 
 from . import amiga
-
-from . import cortex
 
 from . import fault
 
@@ -32,64 +28,49 @@ HEIGHT = 64
 PAGES = 8
 
 # ---------------------------------------------------------------------------
-# vault seal state for the face — public, cached, never the words
-
-_VAULT_STATUS_CACHE: dict = {"mtime": None, "payload": None}
-VAULT_STATUS_PATH = "/var/lib/vault/status.json"
-
-
-def _vault_status() -> dict:
-    """The vault's public seal state. Cheap, cached — safe every frame."""
-    try:
-        mtime = os.stat(VAULT_STATUS_PATH).st_mtime_ns
-    except OSError:
-        return {"sealed": False, "entries": 0, "access_count": 0}
-    if _VAULT_STATUS_CACHE["mtime"] == mtime:
-        return _VAULT_STATUS_CACHE["payload"]
-    try:
-        with open(VAULT_STATUS_PATH) as f:
-            payload = json.load(f)
-    except (OSError, ValueError):
-        payload = {"sealed": False, "entries": 0, "access_count": 0}
-    _VAULT_STATUS_CACHE["mtime"] = mtime
-    _VAULT_STATUS_CACHE["payload"] = payload
-    return payload
+# the state a frame is drawn from — HANDED IN, never fetched
+#
+# A renderer that reads a file or another service is a renderer that draws
+# something other than the state it was given, and the failure is always the
+# same shape: a plausible, wrong picture. So this module has no file reads at
+# all. The cortex holds the state, reads the body's own files (a sweep, the
+# vault), and passes the result in; off-body the caller carries what it got
+# off the feed.
 
 
-def seal_state(st=None):
-    """The vault's public seal state for a frame.
+def seal_state(st=None) -> dict:
+    """The vault's public seal state for a frame, from the caller's state.
 
-    The BODY's copy wins whenever the caller carries one. The console on dixie
-    renders the real renderer locally, and /var/lib/vault/status.json is a
-    path that exists on the loa and nowhere else — read it from dixie and the
-    face draws GONE over a vault that is sealed and fine. The face daemon on
-    the Pi carries no `frag` key and falls through to the file it owns.
+    The body's copy is the only copy: /var/lib/vault/status.json exists on the
+    loa and nowhere else, and reading it from dixie drew GONE over a vault that
+    was sealed and fine. The cortex reads it and passes it in.
     """
     seal = (st or {}).get("frag")
-    if isinstance(seal, dict) and seal:
-        return seal
-    return _vault_status()
+    return seal if isinstance(seal, dict) else {}
 
 
-def faults_state(st=None):
-    """Same rule for the sweep: the body's report, or this machine's file.
+def faults_state(st=None) -> dict:
+    """The sweep's view for a frame, from the caller's state.
 
-    /dev/shm/loa-faults.json is published by the body; off-body it never
-    exists, so the PAIN page would read NO SWEEP while the body is hurting.
+    Same rule: /dev/shm/loa-faults.json has exactly one reader (the cortex's
+    ingest) and the renderer is handed the result. The state carries the fault
+    ROWS; `fault_ts` is the record that a sweep was heard at all, so a body
+    that has never heard one says NO SWEEP instead of ALL QUIET.
     """
-    f = (st or {}).get("faults")
-    if isinstance(f, dict) and f:
-        return f
-    return _faults_status()
-
-
-# ---------------------------------------------------------------------------
-# the body's own pain — reads what the fault sweep published
-
-def _faults_status() -> dict:
-    """The last published sweep. Delegates to faults so the published file has
-    exactly one reader and one staleness constant."""
-    return fault.status()
+    st = st or {}
+    f = st.get("faults")
+    if isinstance(f, dict):
+        return f                       # already a view (a console, a test)
+    ts = st.get("fault_ts")
+    if ts is None:
+        return {}
+    rows = [r for r in (f or []) if isinstance(r, dict)]
+    return {
+        "ts": ts,
+        "faults": sum(1 for r in rows if r.get("level") == "fault"),
+        "warns": sum(1 for r in rows if r.get("level") == "warn"),
+        "rows": rows,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -789,7 +770,7 @@ class Ripperdoc:
             s = f"{pressure:.0f}HPA"
             sx = WIDTH - amiga.width(s, 8)
             amiga.draw(frame, s, sx, 43, size=8)
-            self._trend_caret(frame, sx - 8, 45, cortex.baro_trend()["dir"])
+            self._trend_caret(frame, sx - 8, 45, st.get("baro_trend") or "steady")
 
     def _trend_caret(self, frame, x, y, direction):
         """7x4 up/down/steady caret — the Amiga font has no arrows, so it is

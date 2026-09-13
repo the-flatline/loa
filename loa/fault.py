@@ -380,9 +380,31 @@ def format_report(report, quiet=False):
     return "\n".join(lines)
 
 
+#: How long the sweep lingers after its own run, listening for an init. The
+#: sweep is a TIMER, not a daemon: it must not stay up. But a cortex that
+#: restarted just after a sweep would otherwise wait a whole minute for the
+#: fault rows to come back, and in that minute a hurting body reads NO SWEEP.
+INIT_WINDOW_S = 2.5
+
+
 def main():
     quiet = "--quiet" in sys.argv
-    report = publish()
+    report = publish()          # the full payload, on our own start
+    # The init handshake, the other half: a restarted cortex publishes `init`
+    # because its RAM is empty. Listen briefly and answer with a FRESH sweep —
+    # this process sweeps rather than replays, so the answer is current and not
+    # a remembered report.
+    from . import sense
+    answered = {"n": 0}
+
+    def on_ask():
+        if answered["n"] == 0:      # one re-sweep is enough; this is a timer
+            answered["n"] += 1
+            publish()
+
+    sense.subscribe_init(on_ask)
+    time.sleep(INIT_WINDOW_S)
+    sense.stop_init()
     if report["faults"] or not quiet:
         print(format_report(report, quiet=quiet))
     return 1 if report["faults"] else 0

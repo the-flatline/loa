@@ -18,6 +18,9 @@
 //     power       the chassis: PMIC rails, as read on the body
 //     fault       what hurts, right now
 //     event       something happened — a record
+//     init        the ask: every daemon re-sends its full payload now (the
+//                 cortex publishes it on start, because a restarted brain knows
+//                 nothing; it is a control message, never a ticked state)
 //
 // Every message rides as TWO ZMQ FRAMES: [topic name][Envelope]. The name is
 // the filter (ZMQ matches a subscription against the leading bytes of the first
@@ -54,7 +57,20 @@ message Envelope {
     Power power = 8;
     Fault fault = 9;
     Event event = 10;
+    Init init = 11;
   }
+}
+
+// The init handshake. The direction is why this needs its own message: the
+// daemons PUSH UP and the cortex PULLs, so the cortex cannot answer a daemon
+// and cannot ask it anything — the ask has to travel the OTHER way, out on a
+// topic the daemons SUBSCRIBE to. A restarted cortex has empty RAM and knows
+// nothing about the body it just became; it publishes this, every running
+// daemon hears it and re-sends its FULL payload, and then everyone returns to
+// change-only. A control message is not a state: it never rides the tick.
+message Init {
+  optional string source = 1;   // who is asking (the cortex)
+  optional double ts = 2;
 }
 
 // The screen topic. Everything a stateless viewer needs to draw this body.
