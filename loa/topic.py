@@ -329,7 +329,14 @@ class Mirror:
 
     def _loop(self):
         while not self._stop.is_set():
-            got = self._sub.recv(200)
+            try:
+                got = self._sub.recv(200)
+            except Exception:                                   # noqa: BLE001
+                # Shutdown: the zmq context is going away under the socket (a
+                # timer process exiting, a test tearing down). A consumer being
+                # torn down is not a feed error, and it must not print a
+                # traceback into the journal that a human then has to rule out.
+                return
             if got is None:
                 continue
             name, env = got
