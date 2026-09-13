@@ -39,7 +39,6 @@ dev = [
 # scripts/deploy-panel.sh and scripts/deploy-ring.sh. Console scripts for them
 # would be a second way to start a second implementation of the same display.
 loa-cortex = "loa.cortex.__main__:main"
-loa-motion = "loa.motion.__main__:main"
 loa-sonar = "loa.sonar.__main__:main"
 loa-weather = "loa.weather.__main__:main"
 # NO ripperdoc: the console is the Rust binary at rust/ripperdoc, which the

@@ -229,19 +229,33 @@ fn decode(parts: Vec<Vec<u8>>) -> Result<Envelope> {
 /// exhaustively here is what makes a NEW topic a compile error in this file
 /// rather than a message nobody can decode.
 pub fn body_name(env: &pb::Envelope) -> String {
-    use pb::envelope::Body;
-    match env.body {
+    match env.body.as_ref() {
+        Some(b) => body_topic_of(b).to_string(),
         None => "<empty>".into(),
-        Some(Body::Ripperdoc(_)) => "ripperdoc".into(),
-        Some(Body::Ring(_)) => "ring".into(),
-        Some(Body::Pir(_)) => "pir".into(),
-        Some(Body::Sonar(_)) => "sonar".into(),
-        Some(Body::Baro(_)) => "baro".into(),
-        Some(Body::Weather(_)) => "weather".into(),
-        Some(Body::Power(_)) => "power".into(),
-        Some(Body::Fault(_)) => "fault".into(),
-        Some(Body::Event(_)) => "event".into(),
-        Some(Body::Init(_)) => "init".into(),
+    }
+}
+
+
+/// The topic a payload MUST travel under.
+///
+/// At the sending end this removes a whole class of fault: there is no way to
+/// publish a pir reading on the ring topic, because the sender asks the payload
+/// what it is. The receiving end checks the same thing independently (ZMQ
+/// matches the subscription against the first frame, protobuf types the body),
+/// which is the belt-and-braces the wire contract asks for.
+pub fn body_topic_of(body: &pb::envelope::Body) -> &'static str {
+    use pb::envelope::Body;
+    match body {
+        Body::Ripperdoc(_) => "ripperdoc",
+        Body::Ring(_) => "ring",
+        Body::Pir(_) => "pir",
+        Body::Sonar(_) => "sonar",
+        Body::Baro(_) => "baro",
+        Body::Weather(_) => "weather",
+        Body::Power(_) => "power",
+        Body::Fault(_) => "fault",
+        Body::Event(_) => "event",
+        Body::Init(_) => "init",
     }
 }
 

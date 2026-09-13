@@ -1,10 +1,17 @@
 [Unit]
-Description=loa motion — PIR daemon (GPIO17)
+Description=loa motion — the PIR daemon (GPIO17), the body's eye
 After=network.target loa-cortex.service
 
 [Service]
 Type=simple
-ExecStart=/home/flatline/venv/bin/loa-motion
+# THE RUST DAEMON (rust/loa-motion), installed by scripts/deploy-rust.sh. Same
+# binary name as the Python console script it replaced, on purpose: the fault
+# sweep and the unit name both say `loa-motion`, and renaming it would make a
+# healthy body report a missing daemon.
+#
+# It reads the pin through liblgpio directly. The Python version spawned
+# `pinctrl get 17` five times a second to do the same thing.
+ExecStart=/usr/local/bin/loa-motion
 Restart=always
 RestartSec=3
 User=flatline

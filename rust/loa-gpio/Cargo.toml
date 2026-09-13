@@ -1,0 +1,9 @@
+[package]
+name = "loa-gpio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "liblgpio over dlopen: claim, read, write — no build-time C dependency"
+
+[dependencies]
+libloading = "0.8"

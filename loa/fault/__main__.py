@@ -35,12 +35,14 @@ UNITS = ("loa-cortex", "loa-panel", "loa-motion", "loa-sonar", "loa-weather",
 
 # Console scripts an unclean shutdown has zeroed before (empty file =>
 # Exec format error => crash-loop that looks like a dead device).
-# The FACE panel is not here any more: loa-panel is a static Rust binary in
-# /usr/local/bin, so it cannot be zeroed by a venv write and the venv-scoped
-# check below cannot see it. Its unit check covers it being missing.
+#
+# ONLY THE PYTHON ONES. loa-panel, loa-ring and loa-motion are Rust binaries in
+# /usr/local/bin, so they cannot be zeroed by a venv write and this check cannot
+# see them — their unit checks cover them being missing. Naming them here would
+# be a check that can never fire.
 SCRIPTS_DIR = "/home/flatline/venv/bin"
-SCRIPTS = ("loa-cortex", "loa-ring", "loa-motion", "loa-sonar",
-           "loa-weather", "ripperdoc")
+SCRIPTS = ("loa-cortex", "loa-sonar", "loa-weather", "loa-fault",
+           "loa-topic-tail")
 
 # Who should hold which SPI bus. Two writers on one bus is the classic
 # ghost-in-the-panel fault.

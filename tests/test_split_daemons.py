@@ -27,7 +27,6 @@ import re
 import subprocess
 import sys
 
-from loa.motion import __main__ as motion
 from loa.sonar import __main__ as sonar
 from loa.weather import __main__ as weather
 
@@ -36,15 +35,33 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent / "loa"
 #: (folder, driver module, the names the driver owns). The names are the point:
 #: `loa.sense` answering for any of them means the driver never really moved.
 DRIVERS = (
-    ("motion", "pir", ("SensePoller", "pinctrl_reader", "set_input")),
     ("sonar", "ultrasonic", ("Sonar",)),
     ("weather", "dht", ("DHT11",)),
     ("weather", "baro", ("BMP180",)),
 )
 #: The files each daemon is allowed to load: its own folder, the framework
 #: (`loa.sense`) and the shared floor (`loa.topic`, `loa.config`, `loa.geom`).
-DAEMONS = (("motion", "pir"), ("sonar", "ultrasonic"),
-           ("weather", ("dht", "baro")))
+DAEMONS = (("sonar", "ultrasonic"), ("weather", ("dht", "baro")))
+
+
+RUST = pathlib.Path(__file__).resolve().parent.parent / "rust"
+
+
+def _rust_cfg_keys():
+    """The `sense_*` settings the RUST daemons read.
+
+    `setting("LOA_SENSE_GPIO", "sense", "gpio", ..)` names the same key the
+    Python reader calls `sense_gpio` — the group_key convention, shared. Without
+    this, porting a daemon would look exactly like dropping its settings: the
+    test would fail on a setting that is read, just not in Python.
+    """
+    found = set()
+    for manifest in sorted(RUST.glob("loa-*/src/*.rs")):
+        text = manifest.read_text()
+        for group, key in re.findall(
+                r'setting\("LOA_[A-Z_]+",\s*"([a-z_]+)",\s*"([a-z_]+)"', text):
+            found.add(f"{group}_{key}")
+    return found
 
 
 def _cfg_keys(module):
@@ -52,7 +69,7 @@ def _cfg_keys(module):
 
 
 def test_each_sense_has_its_own_entrypoint():
-    for mod in (motion, sonar, weather):
+    for mod in (sonar, weather):
         assert callable(mod.main), f"{mod.__name__} has no main()"
 
 
@@ -69,7 +86,7 @@ def test_the_split_lost_no_setting():
     from loa import config
 
     expected = {f"sense_{k}" for k in config._GROUP_KEYS["sense"]}
-    read = _cfg_keys(motion) | _cfg_keys(sonar) | _cfg_keys(weather)
+    read = _cfg_keys(sonar) | _cfg_keys(weather) | _rust_cfg_keys()
     lost = expected - read
     assert not lost, f"the split dropped these settings: {sorted(lost)}"
 
@@ -94,27 +111,41 @@ def _identifiers(path):
     return names
 
 
-def test_motion_cannot_be_starved_by_a_hung_sensor():
-    """The whole point. If a blocking read ever moves into the motion folder,
-    this fails before it can cost another two hours.
+def test_no_sense_can_be_starved_by_another_sense():
+    """The whole point, and it is STRUCTURAL now.
 
-    Read over the WHOLE folder, not just the daemon: the driver lives next to
-    the daemon now, and a blocking read in `pir.py` starves the same poll.
+    The PIR went silent for two hours because the DHT's blocking pulse
+    collection shared its loop. In Python the guarantee was a check over the
+    motion folder; in Rust each sense is a separate BINARY, so a hung sensor
+    cannot reach another one at all — there is no shared loop to hang.
+
+    What can still regress is a dependency: if `loa-sonar` ever links
+    `loa-motion`, the two are one program again in every way that matters.
     """
-    for path in sorted((ROOT / "motion").glob("*.py")):
-        bad = _identifiers(path) & {"DHT11", "BMP180", "Sonar", "gpiod"}
-        assert not bad, (
-            f"{path.name} grew {sorted(bad)} — a hung sensor must not be able "
-            f"to deafen the PIR")
+    senses = ("loa-motion", "loa-sonar", "loa-weather", "loa-fault")
+    for name in senses:
+        manifest = RUST / name / "Cargo.toml"
+        if not manifest.exists():
+            continue                       # not ported yet: still Python
+        deps = manifest.read_text()
+        for other in senses:
+            if other == name:
+                continue
+            assert other not in deps.replace(name, ""), (
+                f"{name} depends on {other}: one sense cannot wait on another")
 
 
 def test_the_face_says_what_the_pin_says():
     """Motion is only useful if the PIR's own state is published for the face
-    and the sweep. This is the thing that was true of the combined daemon and
-    must stay true of the split one."""
-    src = inspect.getsource(motion)
-    assert "pir_high" in src, "motion must publish the pin level"
-    assert "set_input" in src, "motion must own the pin's input mode"
+    and the sweep — and the daemon is RUST now, so the check reads `high`, the
+    wire field behind the state key `pir_high`.
+
+    Two things must stay true: it publishes a LEVEL (not only an event), and it
+    claims the pin as an input rather than reading a pin nobody configured.
+    """
+    src = (RUST / "loa-motion" / "src" / "main.rs").read_text()
+    assert "high: Some(" in src, "the PIR daemon must publish the pin level"
+    assert "claim_input" in src, "the PIR daemon must claim the pin as an input"
 
 
 def test_the_shared_module_no_longer_answers_for_the_drivers():
@@ -189,7 +220,7 @@ def test_no_daemon_or_driver_touches_the_cortex():
     # a separate binary that speaks the topic cannot call into this interpreter
     # at all, which is a stronger version of the same rule.
     paths = [ROOT / name / "__main__.py"
-             for name in ("motion", "sonar", "weather", "fault")]
+             for name in ("sonar", "weather", "fault")]
     paths += [ROOT / folder / f"{mod}.py" for folder, mod, _ in DRIVERS]
     for path in paths:
         src = path.read_text()
@@ -204,8 +235,12 @@ def test_no_daemon_or_driver_touches_the_cortex():
 
 
 def test_every_sense_daemon_claims_its_topic():
-    """use_topic() takes the topic name. Calling it bare is a TypeError at boot."""
-    for name, topic in (("motion", "pir"), ("sonar", "sonar"),
-                        ("weather", "weather")):
+    """use_topic() takes the topic name. Calling it bare is a TypeError at boot.
+
+    The Rust senses do not do this at all: their topic is DERIVED from the
+    payload on every send (`body_topic_of`), so there is no string to get wrong.
+    This checks the Python daemons that are left.
+    """
+    for name, topic in (("sonar", "sonar"), ("weather", "weather")):
         src = (ROOT / name / "__main__.py").read_text()
         assert f'use_topic("{topic}")' in src, f"{name} does not claim {topic}"
