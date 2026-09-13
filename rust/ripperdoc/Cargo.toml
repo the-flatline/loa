@@ -1,0 +1,15 @@
+[package]
+name = "ripperdoc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "the bench console — Workbench chrome, a live face and ring, measured redraw rate"
+
+[dependencies]
+loa-topic = { path = "../loa-topic" }
+tokio = { workspace = true }
+ratatui = "0.29"
+crossterm = "0.28"
+# Commands go over HTTP, and only commands. Blocking is right here: a keypress
+# is a one-shot and the POST is spawned off the draw loop anyway.
+ureq = "2"

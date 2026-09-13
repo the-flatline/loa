@@ -395,12 +395,17 @@ def main():
     # this process sweeps rather than replays, so the answer is current and not
     # a remembered report.
     from .. import sense
-    answered = {"n": 0}
-
     def on_ask():
-        if answered["n"] == 0:      # one re-sweep is enough; this is a timer
-            answered["n"] += 1
-            publish()
+        # Answer EVERY ask inside the window, not just the first. The cortex
+        # asks six times over six seconds and this process lives for
+        # INIT_WINDOW_S, so "once is enough" is only true when the timer happens
+        # to fire right after a cortex restart. When it does not, the body goes
+        # up to a full minute believing it is MUTE — and the face, which takes
+        # over with the fault page when it cannot speak, sits frozen on PAIN
+        # with a healthy body behind it (measured 2026-09-13). Answers are
+        # sweeps on the fault topic; nothing here can ask a question back, so
+        # there is no loop to guard against.
+        publish()
 
     sense.subscribe_init(on_ask)
     time.sleep(INIT_WINDOW_S)

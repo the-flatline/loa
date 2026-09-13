@@ -37,6 +37,7 @@ at a time again. There is NO liveness route — liveness is the unit and the fee
 message arrival. If you want a capability, add a verb — never a route.
 """
 
+import json
 import os
 import sys
 import threading
@@ -350,6 +351,41 @@ def _power_body():
         return {}
 
 
+#: Where the sweep leaves its last report, in RAM. The CLI reads it and so does
+#: the cortex at boot (see _seed_faults_from_cache): the file is a local cache,
+#: never a data path — nothing on any pane is drawn from it.
+FAULTS_CACHE = "/dev/shm/loa-faults.json"
+
+
+def _seed_faults_from_cache():
+    """Adopt the last sweep the body made, if it left one.
+
+    The sweep runs every 60s and publishes what it found; the ingest records
+    `fault_ts` when that message lands. A cortex that starts BETWEEN two sweeps
+    therefore has no `fault_ts`, and `condition()` reads MUTE — so the face takes
+    over with a static fault page and the glass sits frozen on PAIN with a
+    perfectly healthy body behind it (measured 2026-09-13: 116 frames a second
+    arriving, every one identical, none written).
+
+    The sweep already leaves its report in RAM on the body. Reading the body's
+    OWN cache at boot closes that window: one file read, once, at startup. It is
+    a cache read, not a data path — nothing draws from this.
+    """
+    try:
+        with open(FAULTS_CACHE) as f:
+            report = json.load(f)
+    except (OSError, ValueError):
+        return False
+    rows = report.get("rows")
+    if not isinstance(rows, list):
+        return False
+    cortex.set_state({"faults": rows,
+                      "fault_ts": report.get("ts") or time.time()})
+    if report.get("condition"):
+        cortex.set_state({"condition": report["condition"]})
+    return True
+
+
 def _fault_rows(st):
     """What hurts, worst first, including what only the cortex can know.
 
@@ -593,6 +629,7 @@ def start_ingesting(endpoint=None):
     """
     rx = topic_mod.Receiver(**({"endpoint": endpoint} if endpoint else {}))
     stop = threading.Event()
+    _seed_faults_from_cache()
 
     def loop():
         while not stop.is_set():
