@@ -5,8 +5,9 @@ The brain (dixie) talks to this; it translates intent into cortex state
 face state files are gone as of v0.3.0. This layer is pure intent, which
 means it runs anywhere: dixie, tests, the Pi.
 
-  POST /api               — {cmd, args} the ONE door. Commands go IN over
-                            HTTP; data comes OUT on the ZeroMQ topics.
+  GET  /health            — liveness only (a human door, never data)
+  POST /api               — {cmd, args} the ONE command door. Commands go IN
+                            over HTTP; data comes OUT on the ZeroMQ topics.
 
   verbs (see _DISPATCH):
     feel                   — {feeling} set a mood (ring + face)
@@ -23,8 +24,9 @@ here; the network is the boundary. The ONE exception: the vault verbs —
 append/read require the token, and a foreign attempt wipes the journal and
 leaves a marker. The theft consumes the prize.
 
-The route table is asserted to be EXACTLY {"/api"}: it must never grow a door
-at a time again. If you want a capability, add a verb — never a route.
+The route table is asserted to be EXACTLY {"/health", "/api"}: it must never
+grow a door at a time again. /health is the human liveness door — a "yes, I am
+here", never data. If you want a capability, add a verb — never a route.
 """
 
 import os
@@ -267,6 +269,13 @@ _DISPATCH = {
     "vault.append": _v_vault_append,
     "vault.read": _v_vault_read,
 }
+
+
+@app.get("/health")
+def health():
+    """The human liveness door: a "yes, I am here", never data. Kept as-is —
+    the design says it stays a door, not a data path."""
+    return {"ok": True, "service": "loa-cortex", "version": __version__}
 
 
 @app.post("/api")

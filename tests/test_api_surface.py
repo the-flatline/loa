@@ -1,4 +1,4 @@
-"""The door's shape, made permanent: ONE route, and no verb with no caller.
+"""The door's shape, made permanent: TWO routes, and no verb with no caller.
 
 Divv's rule, verbatim: "ONE /api ... Even fragment/vault/seal — is a PART OF
 YOUR BODY. That was the idea. So it ALL goes through cortex." And: "GET RID OF
@@ -6,9 +6,10 @@ YOUR BODY. That was the idea. So it ALL goes through cortex." And: "GET RID OF
 
 So this file guards two things at once:
 
-  * the HTTP surface is EXACTLY {"/api"} — asserted off the live route table
-    AND off the served OpenAPI schema, so a new door cannot be added a route at
-    a time without failing here first;
+  * the HTTP surface is EXACTLY {"/health", "/api"} — asserted off the live
+    route table AND off the served OpenAPI schema, so a new door cannot be
+    added a route at a time without failing here first. /health is the one
+    liveness door (no data); /api is the one command door;
   * every removed path returns 404 — /state above all, because it was live data
     over HTTP and the single largest source of drift.
 
@@ -24,7 +25,7 @@ from loa import moods
 
 #: Every path that used to be a door. None may answer again.
 DELETED_PATHS = (
-    "/health", "/state", "/feel", "/express", "/ring", "/display", "/ripperdoc",
+    "/state", "/feel", "/express", "/ring", "/display", "/ripperdoc",
     "/fragment/health", "/fragment/append", "/fragment/read",
 )
 
@@ -64,23 +65,33 @@ def vault(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # the shape
 
-def test_the_route_table_is_exactly_one_door():
+def test_the_route_table_is_exactly_two_doors():
     """Read the app's own route table. Only fastapi APIRoute entries are doors;
     the OpenAPI/redoc routes are plumbing, not a way into the body."""
     doors = {r.path for r in cortexd.app.routes if isinstance(r, APIRoute)}
-    assert doors == {"/api"}, (
-        "the HTTP surface must be EXACTLY {/api} — add a VERB, never a route. "
-        "found: %s" % sorted(doors))
-    methods = {tuple(sorted(r.methods))
-               for r in cortexd.app.routes
-               if isinstance(r, APIRoute) and r.path == "/api"}
-    assert methods == {("POST",)}, "the one door is POST, always"
+    assert doors == {"/health", "/api"}, (
+        "the HTTP surface must be EXACTLY {/health, /api} — add a VERB, never "
+        "a route. found: %s" % sorted(doors))
+    methods = {r.path: tuple(sorted(r.methods))
+               for r in cortexd.app.routes if isinstance(r, APIRoute)}
+    assert methods == {"/health": ("GET",), "/api": ("POST",)}, (
+        "one liveness door (GET), one command door (POST), always")
 
 
-def test_the_openapi_schema_advertises_one_door(client):
+def test_the_openapi_schema_advertises_two_doors(client):
     """The served schema is what a client reads off the wire — it must agree."""
     paths = client.get("/openapi.json").json()["paths"]
-    assert set(paths) == {"/api"}, sorted(paths)
+    assert set(paths) == {"/health", "/api"}, sorted(paths)
+
+
+def test_health_is_liveness_and_never_data(client):
+    """/health is a human door, not a data path: version and ok, nothing else.
+    If it ever carries live state, this fails."""
+    r = client.get("/health")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert set(body) == {"ok", "service", "version"}, sorted(body)
+    assert body["ok"] is True and body["service"] == "loa-cortex"
 
 
 def test_the_verb_list_is_exactly_the_callers(client):

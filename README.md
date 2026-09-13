@@ -52,9 +52,11 @@ brain (dixie) ──HTTP──> loa-cortex (FastAPI, :8765) ──> cortex.db (S
 
 ## API
 
-The door is **ONE route**: `POST /api`. Commands go IN over HTTP; data comes
-OUT on the ZeroMQ topics — there is no HTTP read path, by design. Every verb
-returns the body its old route returned, so callers do not change shape.
+The surface is **TWO routes**: `GET /health` (a human liveness door — a "yes,
+I am here", never data) and `POST /api` (the one command door). Commands go IN
+over HTTP; data comes OUT on the ZeroMQ topics — there is no HTTP read path, by
+design. Every verb returns the body its old route returned, so callers do not
+change shape.
 
 | Verb | Args | Effect |
 |---|---|---|
@@ -70,10 +72,9 @@ returns the body its old route returned, so callers do not change shape.
 Request body: `{"cmd": "<verb>", "args": {...}}`. An unknown verb is a `400`
 that lists the valid verbs. The verb list is exactly what the two real clients
 issue — ripperdoc on the body and the vault client on dixie. There is no
-liveness route and no `ping`: the connection into the body is via the
-ripperdoc, and a verb with no caller would be a door opened to "have it
+`ping` verb: a verb with no caller would be a door opened to "have it
 available". `tests/test_api_surface.py` asserts the route table is exactly
-`{"/api"}`, so the surface cannot grow a door at a time again.
+`{"/health", "/api"}`, so the surface cannot grow a door at a time again.
 
 ### Feelings (moods)
 
