@@ -6,7 +6,7 @@ what the body is doing.
 """
 import pytest
 
-from loa import cortex
+from loa.cortex import state as cortex
 
 
 @pytest.fixture

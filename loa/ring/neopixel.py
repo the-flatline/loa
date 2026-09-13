@@ -64,7 +64,7 @@ class Ring:
     def __init__(self, num: int = 24, bus: int | None = None,
                  device: int | None = None, speed: int = 3_200_000):
         import spidev              # lazy: animations stay importable anywhere
-        from . import config
+        from .. import config
         cfg = config.load()        # loa.conf is the as-built truth
         self.num = num
         self.spi = spidev.SpiDev()

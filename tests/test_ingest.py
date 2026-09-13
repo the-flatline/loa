@@ -9,7 +9,10 @@ import time
 
 import pytest
 
-from loa import cortex, cortexd, store, topic
+from loa import topic
+from loa.cortex import __main__ as cortexd
+from loa.cortex import state as cortex
+from loa.cortex import store
 
 
 @pytest.fixture

@@ -91,6 +91,32 @@ available". `tests/test_api_surface.py` asserts the route table is exactly
 with free text. Render on the OLED today; the 3.5" face driver keeps these
 names when it lands.
 
+## Layout
+
+One directory per subsystem, so the tree says what each file is:
+
+```
+loa/
+  topic.py geom.py config.py sense.py   the wire · the numbers · config · daemon plumbing
+  pb/                                   generated protobuf
+  cortex/                               THE BRAIN — state, the /api door, the picture
+    __main__.py  state.py  store.py  frames.py
+    face.py  ring.py  amiga.py  topaz.py  moods.py  expressions.py
+  oled/                                 THE GLASS (a limb)
+    __main__.py  driver.py
+  ring/                                 THE LEDS (a limb)
+    __main__.py  neopixel.py  encode.py  animations.py
+  motion/  sonar/  weather/  fault/     one process per sense
+  vault/                                the journal
+  ripperdoc/                            the console (the client)
+```
+
+The renderers live in the brain (`cortex/face.py`, `cortex/ring.py`) and a
+display daemon may reach only its driver, the geometry and the topic — enforced
+in `tests/test_display_boundary.py`, not promised in a comment. Each daemon runs
+as `python -m loa.<subsystem>` (`loa-cortex`, `loa-ring`, `loa-oled`,
+`loa-motion`, `loa-sonar`, `loa-weather`, `loa-fault`, `ripperdoc`).
+
 ## Install (Pi)
 
 ```bash

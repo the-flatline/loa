@@ -11,7 +11,8 @@ receives, and a real socket in a unit test would only prove that zmq works.
 import base64
 
 import loa.ripperdoc as rd
-from loa import face, topic
+from loa import topic
+from loa.cortex import face
 
 
 class _StubFeed:

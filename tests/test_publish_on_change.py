@@ -15,7 +15,11 @@ import ast
 import pathlib
 import time
 
-from loa import cortex, cortexd, frames, topic
+from loa import topic
+from loa.cortex import __main__ as cortexd
+from loa.cortex import frames
+from loa.cortex import ring
+from loa.cortex import state as cortex
 
 
 class _Pub:
@@ -73,7 +77,7 @@ def test_a_restarted_cortex_publishes_a_full_face_on_the_first_tick(monkeypatch)
     """No re-assert hack. A brand-new cortex has no last frame and no history:
     one tick is enough, because the tick RENDERS rather than re-sends."""
     monkeypatch.setattr(cortexd, "_RENDER", {
-        "face": frames.FaceRenderer(), "ring": frames.RingRenderer()})
+        "face": frames.FaceRenderer(), "ring": ring.RingRenderer()})
     monkeypatch.setattr(cortexd, "_FACE", b"")
     monkeypatch.setattr(cortexd, "_RING", b"")
     pub = _Pub()
@@ -85,7 +89,19 @@ def test_a_restarted_cortex_publishes_a_full_face_on_the_first_tick(monkeypatch)
 
 # -- the AST guards: a display does not render, and a renderer reads no file -- #
 
-RENDERERS = ("face", "frames", "oled", "ring", "animations", "render", "amiga")
+#: The renderers (the brain draws) and the displays (a limb blits). One
+#: directory per subsystem means these are dotted modules inside `loa`:
+#: the brain's picture in `cortex/`, the LEDs' voice/encoder in `ring/`, and
+#: the two daemons' `__main__`.
+RENDERERS = ("cortex.face", "cortex.frames", "cortex.ring", "cortex.amiga",
+             "ring.animations", "ring.encode", "oled.__main__", "ring.__main__")
+
+
+def _src(root, name):
+    """The source file for a dotted loa module."""
+    p = root / name.replace(".", "/")
+    return p.with_suffix(".py") if p.with_suffix(".py").is_file() \
+        else p / "__init__.py"
 
 
 def test_no_renderer_constructs_a_sender():
@@ -94,7 +110,7 @@ def test_no_renderer_constructs_a_sender():
     root = pathlib.Path(__file__).resolve().parent.parent / "loa"
     offenders = []
     for name in RENDERERS:
-        tree = ast.parse((root / f"{name}.py").read_text())
+        tree = ast.parse(_src(root, name).read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 func = node.func
@@ -102,7 +118,7 @@ def test_no_renderer_constructs_a_sender():
                           else func.attr if isinstance(func, ast.Attribute)
                           else "")
                 if called.endswith("Sender"):
-                    offenders.append(f"{name}.py:{node.lineno} {called}()")
+                    offenders.append(f"{name}:{node.lineno} {called}()")
     assert not offenders, (
         "a renderer is pushing frames up the wire: %s" % offenders)
 
@@ -119,7 +135,7 @@ def test_no_renderer_reads_dev_shm():
     root = pathlib.Path(__file__).resolve().parent.parent / "loa"
     offenders = []
     for name in RENDERERS:
-        tree = ast.parse((root / f"{name}.py").read_text())
+        tree = ast.parse(_src(root, name).read_text())
         docstrings = set()
         for node in ast.walk(tree):
             body = getattr(node, "body", None)
@@ -134,7 +150,7 @@ def test_no_renderer_reads_dev_shm():
                     and isinstance(node.value, str)
                     and id(node) not in docstrings
                     and "/dev/shm" in node.value):
-                offenders.append(f"{name}.py:{node.lineno}")
+                offenders.append(f"{name}:{node.lineno}")
     assert not offenders, (
         "these renderers read /dev/shm instead of the state handed in: %s"
         % offenders)

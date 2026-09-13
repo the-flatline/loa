@@ -23,7 +23,7 @@ renderer share one definition of the frame, never two.
 """
 import time
 
-from . import geom
+from .. import geom
 
 WIDTH = geom.FACE_WIDTH
 HEIGHT = geom.FACE_HEIGHT
@@ -70,7 +70,7 @@ class SH1106:
                  offset=2):
         import subprocess
         import spidev
-        from . import config
+        from .. import config
         cfg = config.load()
         self.dc = dc
         self.res = res

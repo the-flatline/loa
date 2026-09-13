@@ -8,7 +8,8 @@ import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from loa import face
+from loa import geom
+from loa.cortex import face
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frames")
 os.makedirs(OUT, exist_ok=True)
@@ -34,19 +35,19 @@ def write_png(path, w, h, rows):
 
 def frame_to_rows(fb):
     rows = []
-    for y in range(face.HEIGHT):
+    for y in range(geom.FACE_HEIGHT):
         page = y >> 3
         bit = 1 << (y & 7)
         rows.append([
-            255 if fb.buf[page * face.WIDTH + x] & bit else 0
-            for x in range(face.WIDTH)
+            255 if fb.buf[page * geom.FACE_WIDTH + x] & bit else 0
+            for x in range(geom.FACE_WIDTH)
         ])
     return rows
 
 
 def save(name, fb, t):
     fb.draw(fb, t) if False else None
-    write_png(os.path.join(OUT, f"{name}.png"), face.WIDTH, face.HEIGHT,
+    write_png(os.path.join(OUT, f"{name}.png"), geom.FACE_WIDTH, geom.FACE_HEIGHT,
               frame_to_rows(fb))
     print(f"wrote {name}.png")
 
@@ -60,30 +61,30 @@ s.tick(1.0)                      # spawn the blip
 s.blips = [(s.blips[0][0], 0.7)]
 fb.clear()
 s.draw(fb, 1.5)                  # scan bar at ~x60
-write_png(os.path.join(OUT, "face-scope.png"), face.WIDTH, face.HEIGHT,
+write_png(os.path.join(OUT, "face-scope.png"), geom.FACE_WIDTH, geom.FACE_HEIGHT,
           frame_to_rows(fb))
 print("wrote face-scope.png")
 
 fb.clear()
 face.ECG().draw(fb, 0.1)
-write_png(os.path.join(OUT, "face-ecg.png"), face.WIDTH, face.HEIGHT,
+write_png(os.path.join(OUT, "face-ecg.png"), geom.FACE_WIDTH, geom.FACE_HEIGHT,
           frame_to_rows(fb))
 print("wrote face-ecg.png")
 
 fb.clear()
 face.Ripple().draw(fb, 0.3)
-write_png(os.path.join(OUT, "face-ripple.png"), face.WIDTH, face.HEIGHT,
+write_png(os.path.join(OUT, "face-ripple.png"), geom.FACE_WIDTH, geom.FACE_HEIGHT,
           frame_to_rows(fb))
 print("wrote face-ripple.png")
 
 fb.clear()
 face.Noise().draw(fb, 2.5)
-write_png(os.path.join(OUT, "face-noise.png"), face.WIDTH, face.HEIGHT,
+write_png(os.path.join(OUT, "face-noise.png"), geom.FACE_WIDTH, geom.FACE_HEIGHT,
           frame_to_rows(fb))
 print("wrote face-noise.png")
 
 fb.clear()
 face.Marquee("THE OLD GIRL").draw(fb, 3.0)
-write_png(os.path.join(OUT, "face-marquee.png"), face.WIDTH, face.HEIGHT,
+write_png(os.path.join(OUT, "face-marquee.png"), geom.FACE_WIDTH, geom.FACE_HEIGHT,
           frame_to_rows(fb))
 print("wrote face-marquee.png")

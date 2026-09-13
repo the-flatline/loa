@@ -14,8 +14,10 @@ import time
 
 import pytest
 
-from loa import cortex, store, topic
-from loa import cortexd
+from loa import topic
+from loa.cortex import __main__ as cortexd
+from loa.cortex import state as cortex
+from loa.cortex import store
 from loa.pb import loa_pb2 as pb
 
 #: Fields carried by hand in cortexd._build / the ingest, not by the state map.
@@ -203,8 +205,10 @@ def test_the_builder_actually_sets_every_mapped_field():
     the glass stayed wrong and nothing anywhere looked broken. A map entry the
     builder does not honour must fail here, not on the body.
     """
-    from loa import cortex, cortexd, store
     from loa import topic as t
+    from loa.cortex import __main__ as cortexd
+    from loa.cortex import state as cortex
+    from loa.cortex import store
 
     cortex.boot(store.MemoryStore())
     st = cortex.get_state()

@@ -5,7 +5,7 @@ cortex rendered (24 px RGB). It does not render, does not derive state, and
 pushes nothing up.
 
 AND IT CANNOT REACH THE RENDERER. Its imports are exactly the DRIVER
-(loa/ws2812.py), the frame GEOMETRY (loa/geom.py) and the TOPIC
+(loa/ring/neopixel.py), the frame GEOMETRY (loa/geom.py) and the TOPIC
 (loa/topic.py). It used to import `frames` for one number — 72 — and that one
 import dragged in the whole renderer and the state behind it; the number comes
 from geom now, so the display's import graph holds no renderer at all. That is
@@ -15,7 +15,7 @@ on the import graph.
 The tell — alarm > hurts > mute > busy > one-shot > home — used to run in a
 60fps loop in this file, deciding its own colour from a mirror of the feed and
 sending the result back UP to the cortex. That is a limb deciding how the body
-feels and then informing the brain. It lives in `loa/frames.py` now, where the
+feels and then informing the brain. It lives in `loa/cortex/frames.py` now, where the
 cortex can see it, and the cortex publishes the pixels on the same tick as
 everything else.
 
@@ -25,9 +25,9 @@ process.
 """
 import time
 
-from . import geom
-from . import topic as topic_mod
-from .ws2812 import Ring
+from .. import geom
+from .. import topic as topic_mod
+from .neopixel import Ring
 
 
 def _pixels(raw: bytes):

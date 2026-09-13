@@ -11,7 +11,9 @@ must not quietly lose a setting on the way.
 import inspect
 import re
 
-from loa import motion, sonar, weather
+from loa.motion import __main__ as motion
+from loa.sonar import __main__ as sonar
+from loa.weather import __main__ as weather
 
 
 def _cfg_keys(module):
@@ -69,7 +71,7 @@ def test_no_daemon_touches_the_cortex():
 
     root = pathlib.Path(__file__).resolve().parent.parent / "loa"
     for name in ("motion", "sonar", "weather", "oled", "ring", "fault"):
-        src = (root / f"{name}.py").read_text()
+        src = (root / name / "__main__.py").read_text()
         # Parse rather than grep: a mention of the cortex in a comment or a
         # docstring is explanation, not a call. Only real attribute access on
         # the name `cortex` counts.
@@ -87,5 +89,5 @@ def test_every_sense_daemon_claims_its_topic():
     root = pathlib.Path(__file__).resolve().parent.parent / "loa"
     for name, topic in (("motion", "pir"), ("sonar", "sonar"),
                         ("weather", "weather")):
-        src = (root / f"{name}.py").read_text()
+        src = (root / name / "__main__.py").read_text()
         assert f'use_topic("{topic}")' in src, f"{name} does not claim {topic}"

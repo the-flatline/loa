@@ -14,7 +14,8 @@ payload, and a daemon also sends its full payload on its own start.
 """
 import zmq
 
-from loa import cortexd, sense, topic as t
+from loa import sense, topic as t
+from loa.cortex import __main__ as cortexd
 
 
 def test_the_cortex_publishes_an_init_a_daemon_can_hear():

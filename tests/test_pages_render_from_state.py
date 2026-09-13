@@ -11,7 +11,7 @@ of them produced a plausible empty answer instead of an error.
 """
 import pytest
 
-import loa.face as face
+from loa.cortex import face
 
 
 def _no_local_hardware(monkeypatch):

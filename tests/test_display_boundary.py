@@ -5,20 +5,24 @@ frames`, because face.py held the SH1106 DRIVER next to the face RENDERER and
 the ring daemon wanted one number out of the frame module. Both worked. Both
 meant the display process had physically loaded the rendering code and the
 state derivation that lives with it (`seal_state`, `faults_state`,
-`power_status` in face.py) — so "the display only reads the dumb functions" was
-a promise about code that nothing stopped from changing, and the first import
-added for convenience would have made it a false one.
+`power_status` in the renderer) — so "the display only reads the dumb
+functions" was a promise about code that nothing stopped from changing, and the
+first import added for convenience would have made it a false one.
 
-Split 2026-09-13: the driver is `loa/panel.py`, the frame geometry is
+Split 2026-09-13: the driver is `loa/oled/driver.py`, the frame geometry is
 `loa/geom.py`, and a display daemon's imports are exactly
-{its driver, the geometry, the topic}. THIS FILE is what keeps it that way. The
-rule is asserted twice on purpose:
+{its driver, the geometry, the topic}. Restructured 2026-09-13 into one
+directory per subsystem: the renderer now lives in `loa/cortex/` (the BRAIN owns
+the picture) and the limb in `loa/oled/`, so the tree says which side of the
+boundary each module is on. THIS FILE is what keeps it that way. The rule is
+asserted twice on purpose:
 
-  * over the SOURCE (AST) — every `from . import x` in the display's closure,
-    module level or inside a function, because a lazy import is still an import;
-  * over the REAL import graph — `loa.oled`/`loa.ring` imported in a subprocess,
-    because `loa/__init__.py` re-exporting a renderer would satisfy any
-    module-level test while putting the renderer back in the daemon's process.
+  * over the SOURCE (AST) — every import in the display's closure, module level
+    or inside a function, because a lazy import is still an import;
+  * over the REAL import graph — `loa.oled.__main__`/`loa.ring.__main__`
+    imported in a subprocess, because `loa/__init__.py` re-exporting a renderer
+    would satisfy any module-level test while putting the renderer back in the
+    daemon's process.
 
 It is the same rule as the one-process-per-sense split in test_split_daemons.py:
 the boundary has to be a property of the code, not a comment asking politely.
@@ -32,104 +36,148 @@ import sys
 
 import pytest
 
-from loa import animations, face, frames, geom, oled, panel, ring
+from loa import geom
+from loa.cortex import face, frames
+from loa.oled import __main__ as oled
+from loa.oled import driver
+from loa.ring import __main__ as ring
+from loa.ring import animations
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PKG = ROOT / "loa"
+
+#: The display DAEMONS, by their dotted module name, and the src of each.
+DISPLAYS = {
+    "oled.__main__": PKG / "oled" / "__main__.py",
+    "ring.__main__": PKG / "ring" / "__main__.py",
+}
 
 #: What a PURE DISPLAY may hold, beyond stdlib: its own DRIVER, the frame
 #: GEOMETRY and the TOPIC. `config` rides with the driver — reading its own
 #: bus/offset out of loa.conf is the driver's business, and the driver is the
 #: only thing that does it. `pb` is the generated protobuf binding the topic
-#: module needs, carrying no loa code of its own.
+#: module needs, carrying no loa code of its own. Names are dotted paths inside
+#: `loa` (so `oled.driver` is the SH1106 and `ring.neopixel` is the WS2812).
 ALLOWED = {
-    "oled": {"oled", "panel", "geom", "topic", "config", "pb"},
-    "ring": {"ring", "ws2812", "geom", "topic", "config", "pb"},
+    "oled.__main__": {"oled.__main__", "oled.driver", "geom", "topic",
+                      "config", "pb"},
+    "ring.__main__": {"ring.__main__", "ring.neopixel", "geom", "topic",
+                      "config", "pb"},
 }
 
-#: The rendering code and the state behind it. Named individually so a failure
-#: says WHAT leaked, not just that something did.
-FORBIDDEN = ("face", "frames", "render", "animations", "amiga", "topaz",
-             "moods", "expressions", "cortex", "cortexd", "store", "vault",
+#: The rendering code and the state behind it, as PREFIXES (so `cortex` covers
+#: `cortex.state`, `cortex.face`, ...). Named individually so a failure says
+#: WHAT leaked, not just that something did.
+FORBIDDEN = ("cortex", "ring.encode", "ring.animations", "face", "frames",
+             "amiga", "topaz", "moods", "expressions", "store", "vault",
              "ripperdoc", "fault", "sense", "motion", "sonar", "weather")
+
+
+def _is_forbidden(name: str) -> bool:
+    return any(name == f or name.startswith(f + ".") for f in FORBIDDEN)
+
+
+def _leaks(names) -> set[str]:
+    return {n for n in names if _is_forbidden(n)}
 
 
 # ---------------------------------------------------------------------------
 # 1. the boundary, over the source
 
-def _imports_in(src: str) -> set[str]:
+def _imports_in(src: str, module: str) -> set[str]:
     """Every loa submodule a source imports — module level OR inside a function.
 
-    A lazy `from . import config` in an `__init__` is still a dependency: if the
-    driver may not have it, the display may not reach it either.
+    `module` is the dotted path of the importing module inside `loa`
+    (e.g. `oled.__main__`), because relative imports resolve against it: level 1
+    is the containing package, level 2 is its parent. A lazy `from .. import
+    config` in an `__init__` is still a dependency: if the driver may not have
+    it, the display may not reach it either.
     """
+    pkg = module.split(".")[:-1]               # the containing package
     found: set[str] = set()
+
+    def join(head: list[str], tail: str) -> str:
+        return ".".join([*head, tail]) if head else tail
+
     for node in ast.walk(ast.parse(src)):
         if isinstance(node, ast.Import):
             for a in node.names:
                 parts = a.name.split(".")
                 if parts[0] == "loa" and len(parts) > 1:
-                    found.add(parts[1])
+                    found.add(".".join(parts[1:]))
         elif isinstance(node, ast.ImportFrom):
             if node.level == 0:
                 if node.module and node.module.split(".")[0] == "loa":
                     parts = node.module.split(".")
-                    found.add(parts[1] if len(parts) > 1 else "")
-            elif node.level == 1:
-                if node.module:                 # from .panel import X
-                    found.add(node.module.split(".")[0])
-                else:                           # from . import x, y
-                    found.update(a.name for a in node.names)
+                    found.add(".".join(parts[1:]))
+            else:
+                up = node.level - 1
+                base = pkg[:len(pkg) - up] if up <= len(pkg) else []
+                if node.module:               # from ..fault import __main__
+                    found.add(join(base, node.module))
+                else:                          # from . import x, y
+                    found.update(join(base, a.name) for a in node.names)
     return {m for m in found if m}
+
+
+def _src_of(mod: str):
+    """The source file for a dotted loa module, or None if it is not one."""
+    p = PKG / mod.replace(".", "/")
+    if p.with_suffix(".py").is_file():
+        return p.with_suffix(".py")
+    if (p / "__init__.py").is_file():
+        return p / "__init__.py"
+    return None
 
 
 def _closure(mod: str, seen: set[str] | None = None) -> set[str]:
     """The loa submodules `mod` transitively imports, from the source."""
     seen = set() if seen is None else seen
-    for name in _imports_in((PKG / f"{mod}.py").read_text()):
-        if name in seen or not (PKG / f"{name}.py").exists():
-            seen.add(name)
-            continue
-        seen.add(name)
-        _closure(name, seen)
+    if mod in seen:
+        return seen
+    path = _src_of(mod)
+    if path is None:
+        return seen
+    seen.add(mod)
+    for name in _imports_in(path.read_text(), mod):
+        if name not in seen:
+            _closure(name, seen)
     return seen
 
 
-@pytest.mark.parametrize("display", ["oled", "ring"])
+@pytest.mark.parametrize("display", list(DISPLAYS))
 def test_a_display_imports_only_its_driver_the_geometry_and_the_topic(display):
     got = _closure(display)
     extra = got - ALLOWED[display]
     assert not extra, (
-        f"{display}.py reaches {sorted(extra)} — a display's imports are "
+        f"{display} reaches {sorted(extra)} — a display's imports are "
         f"exactly its driver, the frame geometry and the topic")
 
 
-@pytest.mark.parametrize("display", ["oled", "ring"])
+@pytest.mark.parametrize("display", list(DISPLAYS))
 def test_a_display_cannot_reach_the_renderer(display):
     """The thing itself, stated as its own failure: this is what the split was
     for, and the message has to name the module that leaked."""
-    leaks = _closure(display) & set(FORBIDDEN)
+    leaks = _leaks(_closure(display))
     assert not leaks, (
-        f"{display}.py can reach the renderer/state {sorted(leaks)} — the "
+        f"{display} can reach the renderer/state {sorted(leaks)} — the "
         f"display process must not be able to draw or to derive state")
 
 
 def test_the_boundary_is_not_vacuous():
     """`_closure` must actually see imports, or every assertion above passes on
     an empty set and the guard is decoration."""
-    assert _closure("oled") >= {"panel", "geom", "topic"}
-    assert _closure("ring") >= {"ws2812", "geom", "topic"}
-    assert _closure("frames") & set(FORBIDDEN), (
+    assert _closure("oled.__main__") >= {"oled.driver", "geom", "topic"}
+    assert _closure("ring.__main__") >= {"ring.neopixel", "geom", "topic"}
+    assert _leaks(_closure("cortex.frames")), (
         "the renderer itself must show up as reaching rendering code")
 
 
 def test_the_display_modules_do_not_even_name_the_renderer():
-    for name in ("oled", "ring"):
-        src = (PKG / f"{name}.py").read_text()
-        body = "\n".join(line for line in src.splitlines()
-                         if not line.lstrip().startswith("#"))
-        assert "import face" not in body and "import frames" not in body, (
-            f"{name}.py imports the renderer")
+    for name, path in DISPLAYS.items():
+        deps = _imports_in(path.read_text(), name)
+        leaks = _leaks(deps)
+        assert not leaks, f"{path.name} names the renderer/state {sorted(leaks)}"
 
 
 # ---------------------------------------------------------------------------
@@ -153,11 +201,14 @@ def _loa_modules_loaded_by(module: str) -> set[str]:
     return set(json.loads(r.stdout.strip().splitlines()[-1]))
 
 
-@pytest.mark.parametrize("display,driver", [("oled", "panel"), ("ring", "ws2812")])
-def test_the_running_display_process_never_loads_the_renderer(display, driver):
+@pytest.mark.parametrize("display,driver_mod",
+                         [("oled.__main__", "loa.oled.driver"),
+                          ("ring.__main__", "loa.ring.neopixel")])
+def test_the_running_display_process_never_loads_the_renderer(display,
+                                                              driver_mod):
     loaded = _loa_modules_loaded_by(display)
-    assert f"loa.{driver}" in loaded, "the driver did not load — test is vacuous"
-    leaks = {m for m in loaded if m.removeprefix("loa.") in FORBIDDEN}
+    assert driver_mod in loaded, "the driver did not load — test is vacuous"
+    leaks = {m for m in loaded if _is_forbidden(m.removeprefix("loa."))}
     assert not leaks, (
         f"importing loa.{display} loaded the renderer/state {sorted(leaks)} — "
         f"loa/__init__.py must stay lazy, or the display process holds the code "
@@ -179,18 +230,23 @@ def test_the_package_no_longer_drags_the_body_into_every_process():
 
 
 # ---------------------------------------------------------------------------
-# 3. the split lost no name and kept one number
+# 3. the shim is gone and the one number held
 
-def test_face_still_answers_to_every_name_it_used_to():
-    """The renderer's callers say `face.WIDTH`, `face.NullDisplay`. The names
-    survived the split — the module boundary is what changed."""
-    assert face.WIDTH == panel.WIDTH == geom.FACE_WIDTH
-    assert face.HEIGHT == panel.HEIGHT == geom.FACE_HEIGHT
-    assert face.PAGES == panel.PAGES == geom.FACE_PAGES
-    assert face.DEFAULT_FLIP == panel.DEFAULT_FLIP
-    assert face.get_display is panel.get_display
-    assert face.NullDisplay is panel.NullDisplay
-    assert face.SH1106 is panel.SH1106
+def test_the_renderer_no_longer_answers_for_the_driver_or_the_geometry():
+    """The `face.WIDTH` shim is GONE. A renderer that answers `face.WIDTH`,
+    `face.get_display` or `face.NullDisplay` is a renderer wearing the driver's
+    and the geometry's names — `face.py` reads true only when it names neither.
+    Callers name what they use: `geom.FACE_WIDTH`, `oled.driver.NullDisplay`.
+    """
+    for gone in ("WIDTH", "HEIGHT", "PAGES", "DEFAULT_FLIP", "NullDisplay",
+                 "SH1106", "get_display"):
+        assert not hasattr(face, gone), (
+            f"face.{gone} is back — the compatibility shim must stay gone, "
+            f"or the renderer is answering for a layer it is not")
+    # ...and the real names still resolve where they live.
+    assert driver.WIDTH == geom.FACE_WIDTH
+    assert driver.PAGES == geom.FACE_PAGES
+    assert driver.DEFAULT_FLIP is not None
 
 
 def test_the_wire_and_the_glass_share_one_number():
@@ -201,7 +257,7 @@ def test_the_wire_and_the_glass_share_one_number():
     assert frames.FACE_BYTES == geom.FACE_BYTES
     assert frames.RING_BYTES == geom.RING_BYTES
     assert animations.LED_COUNT == geom.RING_LEDS
-    assert panel.WIDTH * panel.PAGES == geom.FACE_BYTES
+    assert driver.WIDTH * driver.PAGES == geom.FACE_BYTES
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +360,7 @@ def test_main_clears_the_panel_and_blits_what_the_topic_carries(monkeypatch,
         def close(self):
             pass
 
-    monkeypatch.setattr(oled.panel_mod, "get_display", lambda: glass)
+    monkeypatch.setattr(oled.driver_mod, "get_display", lambda: glass)
     monkeypatch.setattr(oled.topic_mod, "Mirror", _Mirror)
     monkeypatch.setattr(oled.time, "sleep", lambda _s: None)
 

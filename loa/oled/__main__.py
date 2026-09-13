@@ -7,10 +7,10 @@ renderer, so the BRAIN owns the picture. A display that paints its own frame is
 a limb that moves on its own and then tells the brain what it did.
 
 AND IT CANNOT REACH THE RENDERER. Its imports are exactly the DRIVER
-(loa/panel.py), the frame GEOMETRY (loa/geom.py) and the TOPIC (loa/topic.py):
-this process cannot import loa/face.py or the state derivation that lives in it
-(seal_state, faults_state, power_status), and it cannot reach loa/frames.py or
-loa/cortex.py either. That is a structural boundary, not a promise —
+(loa/oled/driver.py), the frame GEOMETRY (loa/geom.py) and the TOPIC (loa/topic.py):
+this process cannot import loa/cortex/face.py or the state derivation that lives in it
+(seal_state, faults_state, power_status), and it cannot reach loa/cortex/frames.py or
+loa/cortex/state.py either. That is a structural boundary, not a promise —
 tests/test_display_boundary.py asserts it on the import graph.
 
 What stays here is exactly what the brain cannot do, and both are properties of
@@ -25,15 +25,15 @@ the PANEL rather than of the picture:
     it on the topic; the panel applies it.
 
 Both ride the ripperdoc message, so no daemon has to read the state to find out
-what it is showing. Renderers live in loa/frames.py, and the two bytes counts
+what it is showing. Renderers live in loa/cortex/frames.py, and the two bytes counts
 (1024 face, 72 ring) are the same on the wire and on the glass because they are
 one number: loa/geom.py.
 """
 import time
 
-from . import geom
-from . import panel as panel_mod
-from . import topic as topic_mod
+from .. import geom
+from . import driver as driver_mod
+from .. import topic as topic_mod
 
 #: The orientation the panel has been told to use. The panel cannot be read
 #: back, so this is the only record of it.
@@ -72,7 +72,7 @@ def _blit(display, msg) -> bool:
 
 
 def main():
-    display = panel_mod.get_display()
+    display = driver_mod.get_display()
     mirror = topic_mod.Mirror(topics=["ripperdoc"])
     seen = {"id": None}
     try:

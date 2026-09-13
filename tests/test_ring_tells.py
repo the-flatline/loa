@@ -17,7 +17,8 @@ channel that carries the news.
 """
 import time
 
-from loa import fault, frames
+from loa.cortex import ring
+from loa.fault import __main__ as fault
 
 
 def _px(raw):
@@ -33,7 +34,7 @@ def _st(ring_state="home", condition="well", fault_ts=None):
 def test_hurts_stops_breathing_and_holds_red():
     """The tell is the stopped rhythm, not just a colour: a body in pain does
     not keep breathing evenly, and it must not look like the alarm yell."""
-    r = frames.RingRenderer()
+    r = ring.RingRenderer()
     st = _st(condition="hurts")
     levels = set()
     for i in range(12):
@@ -50,7 +51,7 @@ def test_hurts_stops_breathing_and_holds_red():
 def test_mute_blinks_so_silence_does_not_read_as_calm():
     """A dark ring with no blink is indistinguishable from an unplugged cable.
     Alive-but-mute has to look different from dead."""
-    r = frames.RingRenderer()
+    r = ring.RingRenderer()
     st = _st(condition="mute")
     raws = [r.render(st, t=1000.0 + i * 0.1) for i in range(100)]
     assert max(raws[0]) == 0, "mute rests dark"
@@ -59,8 +60,8 @@ def test_mute_blinks_so_silence_does_not_read_as_calm():
 
 def test_the_condition_outranks_the_cosmetic_mood():
     """Being busy is decoration; hurting is information."""
-    busy_well = frames.RingRenderer().render(_st(ring_state="busy"), t=5.0)
-    busy_hurts = frames.RingRenderer().render(
+    busy_well = ring.RingRenderer().render(_st(ring_state="busy"), t=5.0)
+    busy_hurts = ring.RingRenderer().render(
         _st(ring_state="busy", condition="hurts"), t=5.0)
     assert bytes(busy_hurts) != bytes(busy_well)
     for red, green, blue in _px(busy_hurts):
@@ -73,8 +74,8 @@ def test_a_never_swept_body_is_not_a_calm_ring():
     st = _st(condition="well", fault_ts=None)
     st["fault_ts"] = None               # this body has never heard a sweep
     st["ring_state"] = "home"
-    raw = frames.RingRenderer().render(st, t=3.2)
-    breath = frames.RingRenderer().render(dict(st, fault_ts=time.time()), t=3.2)
+    raw = ring.RingRenderer().render(st, t=3.2)
+    breath = ring.RingRenderer().render(dict(st, fault_ts=time.time()), t=3.2)
     assert bytes(raw) != bytes(breath), (
         "a never-swept body rendered the well breath — silence read as calm")
 

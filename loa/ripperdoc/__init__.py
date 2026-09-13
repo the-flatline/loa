@@ -34,8 +34,8 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Static
 
-from . import face
-from . import topic
+from ..cortex import face
+from .. import topic
 
 DEFAULT_PORT = 8765
 POLL_S = 0.1
@@ -560,7 +560,7 @@ class RipperdocApp(App):
             pass
 
     def action_mood(self):
-        from . import moods
+        from ..cortex import moods
         names = list(moods.MOODS)
         self._mood_i = (self._mood_i + 1) % len(names)
         try:

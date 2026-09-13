@@ -5,7 +5,7 @@ import tempfile
 # Isolate the cortex DB before anything imports loa.cortex.
 os.environ["LOA_CORTEX_DB"] = os.path.join(tempfile.mkdtemp(), "cortex-test.db")
 
-from loa import cortex  # noqa: E402
+from loa.cortex import state as cortex  # noqa: E402
 from loa.sense import DHT11  # noqa: E402
 
 

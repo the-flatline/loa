@@ -222,7 +222,7 @@ def from_config(cfg=None) -> "PostgresStore | None":
     everything pending, which is exactly what an unreachable aleph looks like.
     """
     import os
-    from . import config
+    from .. import config
     cfg = cfg if cfg is not None else config.load()
     dsn = os.environ.get("LOA_PG_DSN") or cfg.get("pg_dsn")
     if not dsn:

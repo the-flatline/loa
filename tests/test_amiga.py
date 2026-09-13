@@ -6,7 +6,7 @@ was drawing in rows 0-1, above the digits. A glyph's ink belongs at the
 bottom of its cell (digits and capitals are 7 rows in an 8-row cell, so the
 baseline is row 6 of the non-descender range).
 """
-from loa import amiga
+from loa.cortex import amiga
 
 
 def test_period_sits_on_the_baseline():

@@ -311,7 +311,7 @@ def _feed_state(wait=1.5):
     this process could see of the cortex is whatever its own import happened to
     hold. The sweep subscribes like every other consumer and reads what lands.
     """
-    from . import topic as topic_mod
+    from .. import topic as topic_mod
     m = topic_mod.Mirror(topics=list(topic_mod.TOPICS))
     try:
         time.sleep(wait)        # the tick is 2Hz; give it a few
@@ -345,8 +345,8 @@ def publish(report=None):
     except OSError:
         pass
     try:
-        from . import topic as topic_mod
-        from .pb import loa_pb2 as pb
+        from .. import topic as topic_mod
+        from ..pb import loa_pb2 as pb
         msg = pb.Fault(condition=_condition_for(report), ts=report["ts"])
         for r in report.get("rows") or []:
             msg.rows.add(level=str(r.get("level") or ""),
@@ -394,7 +394,7 @@ def main():
     # because its RAM is empty. Listen briefly and answer with a FRESH sweep —
     # this process sweeps rather than replays, so the answer is current and not
     # a remembered report.
-    from . import sense
+    from .. import sense
     answered = {"n": 0}
 
     def on_ask():

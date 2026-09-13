@@ -11,8 +11,8 @@ One process per sense means a dead weather board cannot blind the eye.
 """
 import time
 
-from . import config
-from .sense import (DEFAULT_COOLDOWN, DEFAULT_GPIO, SensePoller, publish,
+from .. import config
+from ..sense import (DEFAULT_COOLDOWN, DEFAULT_GPIO, SensePoller, publish,
                     publish_event, pinctrl_reader, set_input, subscribe_init,
                     use_topic)
 

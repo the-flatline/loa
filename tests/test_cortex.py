@@ -9,7 +9,8 @@ import time
 
 import pytest
 
-from loa import cortex, store
+from loa.cortex import state as cortex
+from loa.cortex import store
 
 
 @pytest.fixture(autouse=True)
@@ -216,8 +217,8 @@ def test_the_orientation_survives_a_round_trip():
 def test_the_panel_is_told_the_orientation_on_the_panel():
     """Two commands to the SH1106, not a rotated pixel: the bench display
     records what it was told."""
-    from loa import face
-    d = face.NullDisplay()
+    from loa.oled import driver
+    d = driver.NullDisplay()
     assert getattr(d, "_flip", None) is None
     d.set_flip(False)
     assert d._flip is False

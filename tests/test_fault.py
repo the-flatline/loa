@@ -4,7 +4,7 @@ Off the Pi every check degrades to "cannot read" instead of raising: the sweep
 must be safe to run anywhere (tests, dixie) and must never invent a fault it
 cannot actually see.
 """
-from loa import fault
+from loa.fault import __main__ as fault
 
 
 def test_sweep_shape():
@@ -32,7 +32,7 @@ def test_status_is_empty_not_an_error_when_never_swept():
 def test_every_live_throttle_condition_is_reported():
     """Bits 0-3 are independent. Reporting only one of them is how a thermally
     limited Pi reads as healthy (found live: 84C, throttled=0xf0008)."""
-    import loa.fault as f
+    import loa.fault.__main__ as f
 
     rows = []
 
@@ -102,8 +102,8 @@ def test_a_ghost_reading_is_not_a_reading(monkeypatch):
     from 100 minutes earlier and the sweep called the body well. 'Is there a
     value?' is not the same question as 'is it live?'."""
     import time as _t
-    import loa.cortex as cortex
-    import loa.fault as f
+    from loa.cortex import state as cortex
+    import loa.fault.__main__ as f
 
     now = _t.time()
     monkeypatch.setattr(f, "_feed_state", lambda *a, **k: {

@@ -20,8 +20,11 @@ import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-from loa import cortex, cortexd, face, vault as vault_mod
-from loa import moods
+from loa import vault as vault_mod
+from loa.cortex import __main__ as cortexd
+from loa.cortex import face
+from loa.cortex import moods
+from loa.cortex import state as cortex
 
 #: Every path that used to be a door. None may answer again.
 DELETED_PATHS = (
@@ -166,7 +169,7 @@ def test_the_console_issues_only_verbs_that_exist():
     import pathlib
 
     src = (pathlib.Path(__file__).resolve().parent.parent
-           / "loa" / "ripperdoc.py").read_text()
+           / "loa" / "ripperdoc" / "__init__.py").read_text()
     issued = set()
     for node in ast.walk(ast.parse(src)):
         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)

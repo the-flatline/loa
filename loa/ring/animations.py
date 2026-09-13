@@ -11,7 +11,7 @@ changing the feel. FPS is a parameter, not an assumption.
 import math
 import random
 
-from . import geom
+from .. import geom
 
 #: The ring's LED count. Defined in `geom` (the frame geometry a display may
 #: import) and re-exported here as the name every animation already uses.

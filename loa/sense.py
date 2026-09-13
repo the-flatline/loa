@@ -20,8 +20,8 @@ import threading
 import time
 
 from . import config
-from . import cortex
-from . import moods
+from .cortex import state as cortex
+from .cortex import moods
 
 POLL_PERIOD = 0.2
 DEFAULT_GPIO = 17

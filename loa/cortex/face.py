@@ -1,20 +1,23 @@
 """face — the face: THE PICTURE. A framebuffer and pure-math animations.
 
-This module is the RENDERER. The panel DRIVER is loa/panel.py (SH1106 over
-SPI0: CLK 11 / MOSI 10 / RES 24 / DC 25 / CS 8, 500kHz, pinctrl for DC/RES)
-and the frame GEOMETRY is loa/geom.py. Both are imported, not defined here,
-because the display daemon must be able to reach the driver and the geometry
-WITHOUT being able to reach this file: a module holding the driver and the
-renderers together is a boundary on paper — `loa-oled` could import the
-state-deriving code beside them tomorrow, work fine, and nobody would notice.
-The boundary is enforced in tests/test_display_boundary.py.
+This module is the face's RENDERER, and it lives in the BRAIN (loa/cortex/):
+the cortex owns the picture and publishes the 1024 bytes. The panel DRIVER is
+loa/oled/driver.py (SH1106 over SPI0: CLK 11 / MOSI 10 / RES 24 / DC 25 / CS 8,
+500kHz, pinctrl for DC/RES) and the frame GEOMETRY is loa/geom.py — both are in
+a different package on purpose, so the DISPLAY daemon reaches the driver and
+the geometry without being able to reach this file: a module holding the driver
+and the renderer together is a boundary on paper. Enforced in
+tests/test_display_boundary.py.
 
   - Frame + animations: pure math, no hardware. Draw into a 128x64 page-major
     framebuffer and see it anywhere (NullDisplay, tests, --render). The
     eventual 3.5" face gets its own panel driver and keeps these frames.
-  - WIDTH/HEIGHT/PAGES and the driver names below are RE-EXPORTED, because
-    `loa.frames`, `loa.ripperdoc` and the renderer tests have always said
-    `face.WIDTH`. The name survived the split; the module boundary did.
+  - The frame geometry is read, never re-badged: this module uses FACE_WIDTH /
+    FACE_HEIGHT / FACE_PAGES from loa/geom.py and does NOT re-export them, and
+    it does not re-export the driver. `face.WIDTH` was a compatibility shim
+    left over from the 2026-09-13 split — a renderer answering for the driver
+    and the geometry is a name that lies about which layer it is. Callers name
+    what they use (geom, oled.driver).
 
 The flatline signature lives here: the default "scope" animation is a flat
 line with occasional blips. Because that is what I am.
@@ -25,20 +28,10 @@ import time
 
 from . import amiga
 
-from . import fault
+from ..fault import __main__ as fault
 
 from . import topaz
-from .geom import FACE_HEIGHT, FACE_PAGES, FACE_WIDTH
-from .panel import (                                              # noqa: F401
-    DEFAULT_FLIP,
-    NullDisplay,
-    SH1106,
-    get_display,
-)
-
-WIDTH = FACE_WIDTH
-HEIGHT = FACE_HEIGHT
-PAGES = FACE_PAGES
+from ..geom import FACE_HEIGHT, FACE_PAGES, FACE_WIDTH
 
 # ---------------------------------------------------------------------------
 # the state a frame is drawn from — HANDED IN, never fetched
@@ -138,15 +131,15 @@ class Frame:
     """128x64 page-major framebuffer (SH1106 layout: page 0..7, LSB = top)."""
 
     def __init__(self):
-        self.buf = bytearray(PAGES * WIDTH)
+        self.buf = bytearray(FACE_PAGES * FACE_WIDTH)
 
     def clear(self):
-        self.buf = bytearray(PAGES * WIDTH)
+        self.buf = bytearray(FACE_PAGES * FACE_WIDTH)
 
     def px(self, x, y, on=True):
-        if not (0 <= x < WIDTH and 0 <= y < HEIGHT):
+        if not (0 <= x < FACE_WIDTH and 0 <= y < FACE_HEIGHT):
             return
-        i = (y >> 3) * WIDTH + x
+        i = (y >> 3) * FACE_WIDTH + x
         bit = 1 << (y & 7)
         if on:
             self.buf[i] |= bit
@@ -349,8 +342,8 @@ def _grid(frame, base):
     pixels sit lit (OLED burn-in). Dotted rows every 8px above/below."""
     for dy in (-24, -16, -8, 8, 16, 24):
         y = base + dy
-        if 0 <= y < HEIGHT:
-            for x in range(0, WIDTH, 4):
+        if 0 <= y < FACE_HEIGHT:
+            for x in range(0, FACE_WIDTH, 4):
                 frame.px(x, y)
 
 
@@ -372,7 +365,7 @@ class Scope:
         now = time.time()
         self.blips = [(x, a + dt) for (x, a) in self.blips if a < 2.5]
         if now >= self.next_blip:
-            self.blips.append((self.rng.randint(8, WIDTH - 8), 0.0))
+            self.blips.append((self.rng.randint(8, FACE_WIDTH - 8), 0.0))
             self.next_blip = now + self.rng.uniform(8.0, 15.0)
 
     def draw(self, frame, t):
@@ -381,12 +374,12 @@ class Scope:
                           * math.sin(2 * math.pi * t / 23.0))
         if (t % 24.0) < 3.0:     # grid flickers in 3s windows, 21s off
             _grid(frame, base)
-        frame.line(0, base, WIDTH - 1, base)   # the flat line
+        frame.line(0, base, FACE_WIDTH - 1, base)   # the flat line
         for (x, age) in self.blips:
             h = int(14 * (1.0 - age / 2.5))
             if h > 0:
                 frame.line(x, base - h, x, base + h)   # a blip: life, briefly
-        scan = int((t * 40.0) % WIDTH)         # phosphor sweep
+        scan = int((t * 40.0) % FACE_WIDTH)         # phosphor sweep
         frame.line(scan, base - 8, scan, base + 8)
         frame.px(scan, base)
 
@@ -415,10 +408,10 @@ class ECG:
 
     def draw(self, frame, t):
         off = (t * self.speed) % self.period
-        y0 = HEIGHT // 2
+        y0 = FACE_HEIGHT // 2
         if (t % 24.0) < 3.0:     # grid flickers, same burn-safe window as scope
             _grid(frame, y0)
-        for x in range(WIDTH):
+        for x in range(FACE_WIDTH):
             p = (x + off) % self.period
             y = int(round(y0 - self._wave(p)))
             frame.px(x, y)
@@ -434,9 +427,9 @@ class Ripple:
         self.freq = freq
 
     def draw(self, frame, t):
-        y0 = HEIGHT // 2
+        y0 = FACE_HEIGHT // 2
         phase = 2 * math.pi * t * self.speed
-        for x in range(WIDTH):
+        for x in range(FACE_WIDTH):
             a = self.amp * (0.6 + 0.4 * math.sin(phase * 0.5 + x * 0.05))
             y = int(round(y0 + a * math.sin(2 * math.pi * x * self.freq + phase)))
             frame.px(x, y)
@@ -452,8 +445,8 @@ class Noise:
     def draw(self, frame, t):
         seed = int(t * 12.0)
         r = random.Random(seed)
-        for y in range(0, HEIGHT, 2):
-            for x in range(0, WIDTH, 2):
+        for y in range(0, FACE_HEIGHT, 2):
+            for x in range(0, FACE_WIDTH, 2):
                 if r.random() < self.density:
                     frame.px(x, y)
 
@@ -467,8 +460,8 @@ class Marquee:
 
     def draw(self, frame, t):
         tw = frame.text_width(self.text)
-        off = int(t * self.speed) % (tw + WIDTH)
-        frame.text(WIDTH - off, HEIGHT // 2 - 3, self.text)
+        off = int(t * self.speed) % (tw + FACE_WIDTH)
+        frame.text(FACE_WIDTH - off, FACE_HEIGHT // 2 - 3, self.text)
 
 
 class Showoff:
@@ -505,8 +498,8 @@ class Showoff:
 
     def _sweep(self, frame, t):
         phase = (int(t / 0.05) // 2) % 2
-        for x in range(WIDTH):
-            for p in range(PAGES):
+        for x in range(FACE_WIDTH):
+            for p in range(FACE_PAGES):
                 if ((x // 8) + p + phase) % 2 == 0:
                     for row_bit in range(8):
                         frame.px(x, p * 8 + row_bit)
@@ -515,29 +508,29 @@ class Showoff:
         y0 = 24
         xwin = int(self.strip_w * (1.0 - ct / 8.0))
         for r in range(16):
-            for sx in range(WIDTH):
+            for sx in range(FACE_WIDTH):
                 src = xwin + sx
                 if 0 <= src < self.strip_w and self.strip_rows[r][src]:
                     frame.px(sx, y0 + r)
 
     def _msg(self, frame):
-        for x in range(WIDTH):
+        for x in range(FACE_WIDTH):
             frame.px(x, 0)
-            frame.px(x, HEIGHT - 1)
-        for y in range(HEIGHT):
+            frame.px(x, FACE_HEIGHT - 1)
+        for y in range(FACE_HEIGHT):
             frame.px(0, y)
-            frame.px(WIDTH - 1, y)
+            frame.px(FACE_WIDTH - 1, y)
         topaz.draw(frame, self.MSG1, 40, 16)
         topaz.draw(frame, self.MSG2, 28, 40)
 
     def _glitch(self, frame):
         base = list(frame.buf)
         for _ in range(3):
-            band_page = self.rng.randint(0, PAGES - 1)
+            band_page = self.rng.randint(0, FACE_PAGES - 1)
             shift = self.rng.randint(1, 8)
-            for x in range(WIDTH):
-                frame.buf[band_page * WIDTH + x] = \
-                    base[band_page * WIDTH + (x - shift) % WIDTH]
+            for x in range(FACE_WIDTH):
+                frame.buf[band_page * FACE_WIDTH + x] = \
+                    base[band_page * FACE_WIDTH + (x - shift) % FACE_WIDTH]
 
 
 class Ripperdoc:
@@ -630,7 +623,7 @@ class Ripperdoc:
         pressure = st.get("pressure_hpa")
         if temp is None:
             amiga.draw(frame, "--.-C", 2, 52, size=8)
-            amiga.draw(frame, "--%", WIDTH - amiga.width("--%", 8), 52, size=8)
+            amiga.draw(frame, "--%", FACE_WIDTH - amiga.width("--%", 8), 52, size=8)
             self._gauge(frame, 2, 18, 0.0)
         else:
             lo, hi = 5.0, 40.0
@@ -639,10 +632,10 @@ class Ripperdoc:
             amiga.draw(frame, f"{temp:4.1f}C", 2, 52, size=8)
             if hum is not None:
                 s = f"{hum:.0f}%"
-                amiga.draw(frame, s, WIDTH - amiga.width(s, 8), 52, size=8)
+                amiga.draw(frame, s, FACE_WIDTH - amiga.width(s, 8), 52, size=8)
         if pressure is not None:
             s = f"{pressure:.0f}HPA"
-            sx = WIDTH - amiga.width(s, 8)
+            sx = FACE_WIDTH - amiga.width(s, 8)
             amiga.draw(frame, s, sx, 43, size=8)
             self._trend_caret(frame, sx - 8, 45, st.get("baro_trend") or "steady")
 
@@ -772,7 +765,7 @@ class Ripperdoc:
         """
         s = "--" if val is None else f"{val:.{dp}f}{unit}"
         amiga.draw(frame, label, x, y, size=8)
-        amiga.draw(frame, s, WIDTH - 2 - amiga.width(s, 8), y, size=8)
+        amiga.draw(frame, s, FACE_WIDTH - 2 - amiga.width(s, 8), y, size=8)
 
     def _lock(self, frame, x, y):
         """A small padlock glyph, 10 wide x 9 tall."""

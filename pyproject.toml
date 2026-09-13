@@ -31,19 +31,35 @@ dev = [
 ]
 
 [project.scripts]
-loa-ring = "loa.ring:main"
-loa-cortex = "loa.cortexd:main"
-loa-oled = "loa.oled:main"
-loa-motion = "loa.motion:main"
-loa-sonar = "loa.sonar:main"
-loa-weather = "loa.weather:main"
+# Each daemon's entry lives in its package's `__main__`, so `python -m loa.oled`
+# and the installed `loa-oled` run the SAME function.
+loa-ring = "loa.ring.__main__:main"
+loa-cortex = "loa.cortex.__main__:main"
+loa-oled = "loa.oled.__main__:main"
+loa-motion = "loa.motion.__main__:main"
+loa-sonar = "loa.sonar.__main__:main"
+loa-weather = "loa.weather.__main__:main"
 ripperdoc = "loa.ripperdoc:main"
-loa-fault = "loa.fault:main"
+loa-fault = "loa.fault.__main__:main"
 loa-topic-tail = "loa.topic:main"
 
 [tool.setuptools]
 # loa.pb MUST be listed: it holds the GENERATED protobuf bindings, and a wheel
 # built without it installs cleanly and then dies on `No module named loa.pb` at
 # import. Found on the body 2026-09-13 — the source tree always had it, so only
-# an install from git could show it.
-packages = ["loa", "loa.pb"]
+# an install from git could show it. Every OTHER package is listed for the same
+# reason: one directory per subsystem means an unlisted one installs clean and
+# then dies on import.
+packages = [
+    "loa",
+    "loa.pb",
+    "loa.cortex",
+    "loa.oled",
+    "loa.ring",
+    "loa.motion",
+    "loa.sonar",
+    "loa.weather",
+    "loa.fault",
+    "loa.vault",
+    "loa.ripperdoc",
+]

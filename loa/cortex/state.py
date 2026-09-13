@@ -10,7 +10,7 @@ as a remote one, answers a plausible empty question instead of failing, and
 leaves the body's live state on an SD card that browns out. Divv's posture, on
 file: live state lives in RAM, only config and records persist.
 
-WHAT PERSISTS, and how (see loa/store.py):
+WHAT PERSISTS, and how (see loa/cortex/store.py):
 
   Settings and counters are MASTER — held in RAM, written to the store, and if
   the store cannot take them, held PENDING and reported as the `DB DOWN` fault.

@@ -5,7 +5,7 @@ The brain (dixie) talks to this; it translates intent into cortex state
 the Pi.
 
 THE CORTEX OWNS THE PICTURE. It holds the state, it imports the pure renderers
-(loa/face.py, loa/frames.py), and it renders the face (1024 B) and the ring
+(loa/cortex/face.py, loa/cortex/frames.py, loa/cortex/ring.py), and it renders the face (1024 B) and the ring
 (72 B) ITSELF, publishing them on the `ripperdoc`/`ring` topics. The oled and
 ring daemons are pure displays: they blit the bytes they are told and push
 nothing up. A daemon that renders its own frame and reports it back is a limb
@@ -45,14 +45,15 @@ import time
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
-from . import __version__
-from . import cortex
-from . import vault as vault_mod
+from .. import __version__
+from . import state as cortex
+from .. import vault as vault_mod
 from . import moods
 from . import store as store_mod
-from . import topic as topic_mod
+from .. import topic as topic_mod
 from . import face
 from . import frames
+from . import ring
 
 DEFAULT_PORT = 8765
 
@@ -114,7 +115,7 @@ class ApiRequest(BaseModel):
     args: dict = Field(default_factory=dict, description="the verb's arguments")
 
 
-# The vault, on the body. Its storage and seal logic live in loa/vault.py
+# The vault, on the body. Its storage and seal logic live in loa/vault/__init__.py
 # and are untouched; this is only the door's handle on it. `ensure()` seals on
 # first run. A wrong token on append/read WIPES the journal — never call these
 # against anything but the body's own /var/lib/vault.
@@ -265,7 +266,7 @@ _PUB = {}
 #: One renderer instance each, held for the process: an animation carries its
 #: own clock (a Scope's blips) and the ring's dither carries a fractional
 #: remainder between frames, so neither may be rebuilt per tick.
-_RENDER = {"face": frames.FaceRenderer(), "ring": frames.RingRenderer()}
+_RENDER = {"face": frames.FaceRenderer(), "ring": ring.RingRenderer()}
 _FACE = b""
 _RING = b""
 
