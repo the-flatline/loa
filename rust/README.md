@@ -97,6 +97,29 @@ The rule this is all in service of: ONE implementation of anything two programs
 must agree about. Two renderers may be a port in progress; two sets of framing
 rules are a bug waiting for a quiet hour.
 
+## Traps, in the order they bit
+
+Each of these cost real time and each is one line to avoid:
+
+  * ONE WIRE, ONE IMPLEMENTATION. A pure-Rust ZMTP crate on one end of a wire
+    whose other end is pyzmq's libzmq produced intermittent three-frame
+    messages (~2/hour), dropped silently by every consumer. Both ends are libzmq
+    now, statically linked, and `decode` demands exactly two frames.
+  * `ZMQ_CONFLATE` ON A SUB SILENTLY DELIVERS NOTHING. Documented for SUB,
+    accepted without error, 0 messages in 3 seconds against 611 with it off. Use
+    `RCVHWM=1` and drain-keep-last — the behaviour is wanted, that option is not.
+  * A HAND-WRITTEN PACKAGE LIST GOES STALE THE FIRST TIME YOU DELETE ONE.
+    `packages = [...]` broke the wheel with `package directory 'loa/oled' does
+    not exist`. Use `[tool.setuptools.packages.find]`.
+  * `pip install --force-reinstall` DOES NOT REMOVE MODULES THE NEW WHEEL OMITS.
+    The body kept importable `loa/motion` and `loa/ripperdoc` while the Rust
+    daemons ran. Uninstall first, then install.
+  * A BUILD STEP WHOSE FAILURE IS NOT THE SCRIPT'S FAILURE IS NOT A BUILD STEP.
+    Two deploys were wasted by piping cargo through `tail`: a missing `protoc`
+    and a missing `proto/` scrolled past and the script installed a binary that
+    had never been built.
+
+
 
 ## Checking it
 
