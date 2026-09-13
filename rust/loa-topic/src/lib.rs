@@ -104,6 +104,15 @@ impl Envelope {
             _ => None,
         }
     }
+
+    /// The ring payload: 72 bytes of RGB, its own topic because wanting the
+    /// ring is its own interest.
+    pub fn ring(&self) -> Option<&pb::Ring> {
+        match self.env.body.as_ref() {
+            Some(pb::envelope::Body::Ring(m)) => Some(m),
+            _ => None,
+        }
+    }
 }
 
 pub struct Subscriber {

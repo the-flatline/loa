@@ -1,13 +1,21 @@
 [Unit]
-Description=loa ring daemon — WS2812 ring voice (SPI1)
+Description=loa ring — the ring display: owns the WS2812B over SPI1, blits the ring topic
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/home/flatline/venv/bin/loa-ring
-Restart=always
-RestartSec=3
+# The RUST ring, built from rust/loa-ring. Same binary name as the Python
+# console script it replaces, on purpose: the fault sweep checks that `loa-ring`
+# holds /dev/spidev1.0, and a rename would have made a healthy body read BUS
+# CLASH against its own daemon (exactly what the panel swap did on 2026-09-13).
+# The venv script stays installed as the rollback.
+ExecStart=/usr/local/bin/loa-ring
 User=flatline
+Restart=always
+RestartSec=1
+# 3.2MHz is the timing contract: four SPI bits per WS2812 bit. The daemon
+# defaults to it; there is nothing to configure here.
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

@@ -493,7 +493,12 @@ FACE_TOPIC = "ripperdoc"
 #: The rest. Sensor daemons publish at 1Hz, a change republishes the moment it
 #: lands, and this tick is only the keepalive that stops a late subscriber being
 #: blind forever. There is nothing in these to draw faster for.
-STATE_TOPICS = tuple(t for t in TICK_TOPICS if t != FACE_TOPIC)
+#: NOT the ring: its pixels are a picture, and a picture paced by a state tick
+#: is a picture that stutters. It was 60fps in the ring daemon before the tell
+#: moved into the cortex, and it came back at 2Hz — the same regression the face
+#: had, in the same refactor.
+RING_TOPIC = "ring"
+STATE_TOPICS = tuple(t for t in TICK_TOPICS if t not in (FACE_TOPIC, RING_TOPIC))
 
 #: Frames per second for the face. 120 by default because the panel measures
 #: 371fps of write path (2026-09-13) and the renderer 957fps worst-case ON the
@@ -520,6 +525,32 @@ def _publish_face(pub, st=None):
     st = cortex.snapshot() if st is None else st
     _render(st)
     pub.send(FACE_TOPIC, _build(FACE_TOPIC, st))
+
+
+#: The ring's own rate. 60fps: the tell is 24 LEDs breathing and commeting, and
+#: 60 is where a comet reads as motion rather than as steps. Uncapped with
+#: LOA_RING_FPS=0, same as the face.
+DEFAULT_RING_FPS = 60.0
+RING_FPS_ENV = "LOA_RING_FPS"
+
+
+def ring_period():
+    """Seconds between ring frames; 0.0 means flat out (uncapped)."""
+    raw = os.environ.get(RING_FPS_ENV)
+    if raw is None:
+        raw = config.load().get("ring_fps")
+    try:
+        fps = DEFAULT_RING_FPS if raw is None else float(raw)
+    except (TypeError, ValueError):
+        fps = DEFAULT_RING_FPS
+    return 0.0 if fps <= 0 else 1.0 / fps
+
+
+def _publish_ring(pub, st=None):
+    """Render and publish the ring. Its own clock, like the face."""
+    st = cortex.snapshot() if st is None else st
+    _render(st)
+    pub.send(RING_TOPIC, _build(RING_TOPIC, st))
 
 
 def _publish_state(pub, st=None):
@@ -597,19 +628,23 @@ def start_publishing(endpoint=None, tick=None):
         slot["stop"] = stop
         period = topic_mod.TICK_S if tick is None else tick
         face = face_period()
+        ring = ring_period()
 
         def loop():
-            next_face = next_state = 0.0
+            next_face = next_ring = next_state = 0.0
             while not stop.is_set():
                 now = time.monotonic()
                 if now >= next_face:
                     _publish_face(slot["sock"])
                     next_face = now + face
+                if now >= next_ring:
+                    _publish_ring(slot["sock"])
+                    next_ring = now + ring
                 if now >= next_state:
                     _publish_state(slot["sock"])
                     next_state = now + period
                 now = time.monotonic()
-                wait = min(next_face, next_state) - now
+                wait = min(next_face, next_ring, next_state) - now
                 if wait > 0:
                     stop.wait(wait)
         threading.Thread(target=loop, daemon=True).start()

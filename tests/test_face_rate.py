@@ -20,9 +20,16 @@ def test_the_face_is_the_frame_topic_and_only_it():
     topic published twice a frame; a topic in NEITHER is a topic that silently
     stops arriving, which looks like a dead daemon."""
     assert cortexd.FACE_TOPIC == "ripperdoc"        # the face rides here
+    assert cortexd.RING_TOPIC == "ring"             # and the ring on its own
     assert cortexd.FACE_TOPIC in cortexd.TICK_TOPICS
-    assert cortexd.FACE_TOPIC not in cortexd.STATE_TOPICS
-    assert set(cortexd.STATE_TOPICS) | {cortexd.FACE_TOPIC} == set(cortexd.TICK_TOPICS)
+    assert cortexd.RING_TOPIC in cortexd.TICK_TOPICS
+    for frame_topic in (cortexd.FACE_TOPIC, cortexd.RING_TOPIC):
+        assert frame_topic not in cortexd.STATE_TOPICS, (
+            "%s is a picture and must not ride the state clock" % frame_topic)
+    # every topic is in exactly ONE clock: two is published twice a frame, none
+    # is a topic that silently stops arriving
+    assert set(cortexd.STATE_TOPICS) | {cortexd.FACE_TOPIC,
+                                        cortexd.RING_TOPIC} == set(cortexd.TICK_TOPICS)
 
 
 def test_face_period_is_a_setting_and_zero_means_uncapped(monkeypatch):
@@ -63,10 +70,13 @@ def test_the_loop_publishes_the_face_far_faster_than_the_state(monkeypatch):
         stop.set()
         cortexd._PUB.pop(endpoint, None)
     counts = Counter(pub.sent)
-    faces, state = counts[cortexd.FACE_TOPIC], sum(
-        counts[t] for t in cortexd.STATE_TOPICS)
+    faces, ring = counts[cortexd.FACE_TOPIC], counts[cortexd.RING_TOPIC]
+    state = sum(counts[t] for t in cortexd.STATE_TOPICS)
     assert faces >= 20, "the face did not run at its own rate: %d" % faces
+    assert ring >= 10, "the ring did not run at its own rate: %d" % ring
     assert faces > state, (
         "the state rode the frame clock: %d face, %d state" % (faces, state))
+    assert ring > state, (
+        "the ring rode the state clock: %d ring, %d state" % (ring, state))
     # and the state topics still went out, so nobody was left blind
     assert state >= 1, "the state clock stopped ticking"

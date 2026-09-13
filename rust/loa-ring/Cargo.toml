@@ -1,0 +1,11 @@
+[package]
+name = "loa-ring"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "loa's ring daemon: owns the WS2812B over SPI1, blits the 72 bytes the cortex rendered"
+
+[dependencies]
+loa-topic = { path = "../loa-topic" }
+tokio = { workspace = true }
+spidev = "0.6"
