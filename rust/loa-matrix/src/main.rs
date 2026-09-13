@@ -27,11 +27,15 @@ loa-matrix — the loa 8x8 panel (HT16K33 @ I2C 0x70)
 
   scan                 list every address that answers
   corner               orientation test: each corner, 1/2/3/4 blinks
-  rows [--group 1|2]   which chip address drives which physical row
+  rows [--group 1|2]   which chip address drives which physical column
+  bits                 which bit inside the byte drives which physical row
+  walk                 one line down the panel, three passes, no counting
   fill                 all 64 LEDs on
   off                  all 64 LEDs off
   pixel X Y            light one LED, 0-7 each, then exit
   box                  the outline, held
+  diag                 the diagonal, held (catches a swapped or reversed axis)
+  raw IDX VALUE        hold one raw RAM byte (hex, e.g. raw 0e ff) — diagnostics
 
   --bright N           panel brightness 0-15 (default 2)
   --loops N            corner test passes (default 3)
@@ -133,6 +137,8 @@ fn main() -> std::io::Result<()> {
     let result = match cmd {
         "corner" => m.corner_test(Duration::from_millis(450), loops),
         "rows" => m.row_sweep(Duration::from_millis(350), group),
+        "bits" => m.bit_sweep(Duration::from_millis(350)),
+        "walk" => m.walk(Duration::from_millis(1200), loops),
         "fill" => {
             m.set_all(true);
             m.flush()?;
@@ -158,6 +164,27 @@ fn main() -> std::io::Result<()> {
             sleep(Duration::from_secs(5));
             m.clear();
             m.flush()
+        }
+        "diag" => {
+            m.clear();
+            for i in 0..8 {
+                m.set(i, i, true);
+            }
+            m.flush()?;
+            sleep(Duration::from_secs(5));
+            m.clear();
+            m.flush()
+        }
+        "raw" => {
+            let idx = words
+                .get(1)
+                .and_then(|v| usize::from_str_radix(v.trim_start_matches("0x"), 16).ok())
+                .unwrap_or(0);
+            let value = words
+                .get(2)
+                .and_then(|v| u8::from_str_radix(v.trim_start_matches("0x"), 16).ok())
+                .unwrap_or(0xFF);
+            m.raw(idx, value, Duration::from_secs(4))
         }
         "pixel" => {
             let x: usize = words.get(1).and_then(|v| v.parse().ok()).unwrap_or(0);

@@ -2,12 +2,19 @@
 //!
 //! The part is a keyboard/display controller with 16 bytes of display RAM and
 //! its own oscillator. Everything it needs is a handful of one-byte commands;
-//! the frame is 16 bytes at address 0x00, auto-incrementing, one word per row.
+//! the frame is 16 bytes at address 0x00, auto-incrementing.
 //!
-//! Row layout as the chip expects it: address 0x00 = row 0 low byte, 0x01 =
-//! row 0 high byte, 0x02 = row 1 low byte, and so on. An 8x8 panel uses the
-//! low byte only, bit 0 = leftmost column. If the corner test says otherwise,
-//! the mapping is a constant away — not a rewrite.
+//! **Measured, not assumed (2026-09-13, Divv at the bench).** Three things
+//! about this board differ from the obvious reading of the datasheet, and
+//! each needed its own test to find:
+//!
+//!   - the address is a COLUMN, not a row — a full byte draws a vertical line
+//!   - the column order is mirrored: 0x00 is the right-hand column as viewed
+//!   - the bit order is rotated by one: the top row is bit 7, not bit 0
+//!
+//! The upshot is that a picture drawn with the assumed row/column split comes
+//! out rotated 90°, and no amount of screen rotation can undo that, because a
+//! rotation cannot fix an axis swap. See `ram()` for the mapping that holds.
 //!
 //! Nothing here reads back. The chip has no readback for the display; the
 //! frame we send is the frame we believe in, which is why a `flush` that
@@ -32,8 +39,30 @@ const CMD_BLINK_OFF: u8 = 0xA0;
 /// Dimming: 0xE0 | level, level 0-15. Global to the panel, not per-pixel.
 const CMD_DIM: u8 = 0xE0;
 
-/// Row addresses double as the chip numbers them: 16 bytes, 8 rows.
+/// 16 bytes of display RAM. This board uses the eight even ones, one per
+/// column; the odd ones are never written — whether anything is wired to them
+/// is unverified and it does not matter, because nothing drives them.
 const FRAME_LEN: usize = 16;
+
+/// The measured RAM layout for this board.
+///
+/// Bench-verified 2026-09-13 and it is NOT the datasheet reading. Three
+/// separate things were wrong in the obvious mapping, each found by a test
+/// that could only have caught that one:
+///
+///   byte = 2 * (7 - x)   x = 0 is the left-hand column as viewed
+///   bit  = (y + 7) % 8   y = 0 is the top row as viewed
+///
+/// The address is a COLUMN, not a row (the column sweep). The column order is
+/// mirrored. And the bit order is ROTATED BY ONE — the last bit drives the
+/// top row, not the bottom (the bit sweep). A rotation cannot fix an axis
+/// swap and neither can fix the wrap, which is why all three got their own
+/// test instead of being reasoned about.
+///
+/// Odd addresses are never written: on this panel they drive nothing.
+fn ram(x: usize, y: usize) -> (usize, u8) {
+    (2 * (7 - x), 1u8 << ((y + 7) % 8))
+}
 
 pub struct Matrix {
     i2c: I2c,
@@ -85,8 +114,7 @@ impl Matrix {
             return;
         }
         let (x, y) = self.rotate(x, y);
-        let byte = y * 2; // low byte of each row: 0x00, 0x02, ...
-        let bit = 1u8 << x; // bit 0 is the leftmost column
+        let (byte, bit) = ram(x, y);
         if on {
             self.frame[byte] |= bit;
         } else {
@@ -110,6 +138,18 @@ impl Matrix {
         if idx < FRAME_LEN {
             self.frame[idx] = value;
         }
+    }
+
+    /// Hold one raw byte, nothing else on the panel.
+    pub fn raw(&mut self, idx: usize, value: u8, hold: Duration) -> io::Result<()> {
+        println!("raw RAM 0x{idx:02x} = 0x{value:02x}, held");
+        sleep(Duration::from_secs(2));
+        self.clear();
+        self.byte(idx, value);
+        self.flush()?;
+        sleep(hold);
+        self.clear();
+        self.flush()
     }
 
     pub fn set_all(&mut self, on: bool) {
@@ -153,6 +193,62 @@ impl Matrix {
                 sleep(hold / 2);
             }
             sleep(hold);
+        }
+        Ok(())
+    }
+
+    /// Which bit drives which physical row: one horizontal line per bit.
+    ///
+    /// The address sweep proved the addresses are columns; this proves the
+    /// other half — which of the 8 bits inside a byte is which position down
+    /// it. A bit set across all eight columns is a horizontal line, which is
+    /// a thing a human can name without a coordinate system. Bit n blinks
+    /// n+1 times.
+    pub fn bit_sweep(&mut self, hold: Duration) -> io::Result<()> {
+        println!("bit sweep — one horizontal line per bit, 1..8 blinks");
+        sleep(Duration::from_secs(2));
+        for bit in 0..8usize {
+            let blinks = bit + 1;
+            println!("  bit {bit} -> {blinks} blink(s)");
+            for _ in 0..blinks {
+                self.clear();
+                for col in 0..8 {
+                    self.byte(col * 2, 1u8 << bit);
+                }
+                self.flush()?;
+                sleep(hold);
+                self.clear();
+                self.flush()?;
+                sleep(hold / 2);
+            }
+            sleep(hold);
+        }
+        Ok(())
+    }
+
+    /// Walk one line down the panel, then repeat.
+    ///
+    /// No blinking and no counts: a single line, moving one row at a time from
+    /// our row 0 to our row 7, then a pause and again. The only question it
+    /// asks is whether the walk starts on the top row of the glass or one
+    /// below it — and if it starts one below, the bit order is rotated inside
+    /// the module's wiring and the driver has to carry that fact.
+    pub fn walk(&mut self, hold: Duration, loops: u32) -> io::Result<()> {
+        println!("walk — one line from our row 0 down to row 7, {loops} pass(es)");
+        sleep(Duration::from_secs(2));
+        for pass in 1..=loops {
+            println!("pass {pass}/{loops}");
+            for y in 0..8usize {
+                self.clear();
+                for x in 0..8 {
+                    self.set(x, y, true);
+                }
+                self.flush()?;
+                sleep(hold);
+            }
+            self.clear();
+            self.flush()?;
+            sleep(Duration::from_secs(3));
         }
         Ok(())
     }
