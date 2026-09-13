@@ -605,6 +605,7 @@ name = "loa-matrix"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "loa-topic",
 ]
 
 [[package]]
@@ -659,6 +660,16 @@ dependencies = [
  "prost",
  "prost-build",
  "zmq",
+]
+
+[[package]]
+name = "loa-weather"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "loa-gpio",
+ "loa-sense",
+ "loa-topic",
 ]
 
 [[package]]

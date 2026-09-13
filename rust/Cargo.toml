@@ -6,7 +6,7 @@
 # Members are added as each one starts existing: a workspace that names a crate
 # that is not there does not build, and a broken build is worse than a short
 # member list.
-members = ["loa-topic", "loa-panel", "loa-ring", "loa-gpio", "loa-sense", "loa-motion", "loa-sonar", "loa-matrix", "ripperdoc"]
+members = ["loa-topic", "loa-panel", "loa-ring", "loa-gpio", "loa-sense", "loa-motion", "loa-sonar", "loa-weather", "loa-matrix", "ripperdoc"]
 resolver = "2"
 
 [workspace.package]
