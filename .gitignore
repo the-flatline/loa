@@ -3,3 +3,9 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+
+# Build output. `uv build` leaves build/ and dist/ behind, and an untracked
+# build directory is one careless `git add -A` away from being committed.
+build/
+dist/
+rust/target/
