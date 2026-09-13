@@ -78,7 +78,12 @@ message Ripperdoc {
   optional string oled_text = 7;
   optional bool oled_dim = 8;
   optional bool ripperdoc = 9;  // the console flag: body in console mode
-  optional string condition = 10;  // well | niggle | hurts
+  optional string condition = 10;
+  // The panel's orientation. A SETTING, and it has to travel: the face daemon
+  // renders from this topic, so a flip the daemon never hears is a flip that
+  // never happens (found on the body 2026-09-13 — the API took it, the glass
+  // stayed upside down).
+  optional bool oled_flip = 12;  // the panel's orientation
   optional double ts = 11;
 }
 

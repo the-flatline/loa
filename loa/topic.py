@@ -68,7 +68,7 @@ from .pb import loa_pb2 as pb
 #: v5: topics. Each message rides as [topic name][Envelope]; one message per
 #: topic, the face bytes INSIDE the ripperdoc message, and a `fault` topic so a
 #: consumer never has to split a "level|label" string to find out what hurts.
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 #: Every topic the cortex publishes. The oneof field names in proto/loa.proto
 #: match these exactly — that is what lets topic_payload() stay generic.
@@ -217,7 +217,8 @@ TOPIC_STATE_MAP = {
     "ripperdoc": {"page": "page", "mood": "mood", "snr_on": "snr_on",
                   "ring_state": "ring_state", "oled_mode": "oled_mode",
                   "oled_text": "oled_text", "oled_dim": "oled_dim",
-                  "ripperdoc": "ripperdoc", "condition": "condition"},
+                  "ripperdoc": "ripperdoc", "condition": "condition",
+                  "oled_flip": "oled_flip"},
     "pir": {"high": "pir_high", "count": "pir_count", "last_ts": "pir_last_ts",
             "last_hold": "pir_last_hold", "on_ts": "pir_on_ts",
             "ts": "pir_last_ts"},
