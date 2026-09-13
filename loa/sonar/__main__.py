@@ -7,8 +7,9 @@ the PIR.
 import time
 
 from .. import config
-from ..sense import (DEFAULT_ECHO, DEFAULT_SNR_PERIOD, DEFAULT_TRIG, Sonar,
-                    publish, publish_event, subscribe_init, use_topic)
+from ..sense import publish, publish_event, subscribe_init, use_topic
+from .ultrasonic import (DEFAULT_ECHO, DEFAULT_SNR_PERIOD, DEFAULT_TRIG,
+                         Sonar)
 
 
 def main():

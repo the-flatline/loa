@@ -3,7 +3,9 @@
 ONE DIRECTORY PER SUBSYSTEM, so the tree says what each file is:
 
   * ``topic`` / ``geom`` / ``config`` / ``sense`` — the wire, the numbers, the
-    as-built config, and the senses' plumbing. The shared floor.
+    as-built config, and the senses' plumbing. The shared floor: ``sense`` is
+    the FRAMEWORK only (publish, the topic claim, the init handshake) — every
+    driver lives in the subsystem folder it belongs to.
   * ``cortex/`` — THE BRAIN. ``state`` (RAM state, settings master), ``store``
     (postgres on aleph), ``frames`` (assembles the picture), ``face`` (the
     pages: state -> 1024 bytes), ``ring`` (the ring's frame builder), ``amiga``
@@ -14,8 +16,9 @@ ONE DIRECTORY PER SUBSYSTEM, so the tree says what each file is:
   * ``ring/`` — THE LEDS, a limb: ``__main__`` (the blit loop), ``neopixel``
     (the hardware), ``encode`` (code space + dither), ``animations`` (the
     voice).
-  * ``motion/ sonar/ weather/ fault/`` — one process per sense, each with its
-    own daemon in ``__main__``.
+  * ``motion/ sonar/ weather/ fault/`` — one process per sense, and the whole
+    sense in the one folder: ``__main__`` (its daemon) and its DRIVER — ``pir``
+    in motion, ``ultrasonic`` in sonar, ``dht`` + ``baro`` in weather.
   * ``vault/`` — the journal. ``ripperdoc/`` — the console (the client).
 
 LAZY ON PURPOSE. `import loa` used to drag the whole body in — the renderers,

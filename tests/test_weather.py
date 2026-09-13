@@ -1,4 +1,9 @@
-"""DHT11 decode + weather state tests — pure logic, no hardware."""
+"""DHT11 decode + weather state tests — pure logic, no hardware.
+
+The driver lives in loa/weather/dht.py (it was in loa/sense.py until the
+drivers moved into the folders that own them); the decode is pure maths, so it
+is testable off the body.
+"""
 import os
 import tempfile
 
@@ -6,7 +11,7 @@ import tempfile
 os.environ["LOA_CORTEX_DB"] = os.path.join(tempfile.mkdtemp(), "cortex-test.db")
 
 from loa.cortex import state as cortex  # noqa: E402
-from loa.sense import DHT11  # noqa: E402
+from loa.weather.dht import DHT11  # noqa: E402
 
 
 def _pulses_for(bytes5):

@@ -97,7 +97,7 @@ One directory per subsystem, so the tree says what each file is:
 
 ```
 loa/
-  topic.py geom.py config.py sense.py   the wire · the numbers · config · daemon plumbing
+  topic.py geom.py config.py sense.py   the wire · the numbers · config · the framework
   pb/                                   generated protobuf
   cortex/                               THE BRAIN — state, the /api door, the picture
     __main__.py  state.py  store.py  frames.py
@@ -106,10 +106,19 @@ loa/
     __main__.py  driver.py
   ring/                                 THE LEDS (a limb)
     __main__.py  neopixel.py  encode.py  animations.py
-  motion/  sonar/  weather/  fault/     one process per sense
+  motion/  sonar/  weather/  fault/     one process per sense, whole folder
+    motion/__main__.py pir.py             the PIR (GPIO17)
+    sonar/__main__.py ultrasonic.py       the range (TRIG 23 / ECHO 22)
+    weather/__main__.py dht.py baro.py    the remote board + i2c 0x77
   vault/                                the journal
   ripperdoc/                            the console (the client)
 ```
+
+`sense.py` is the FRAMEWORK only — publish, the topic claim, the init
+handshake. A hardware driver lives in the subsystem that owns it, so each
+sense folder is self-sufficient and no other subsystem has a reason to import
+into it; `tests/test_split_daemons.py` asserts both halves (no driver answered
+by the shared module, no daemon reaching into another folder).
 
 The renderers live in the brain (`cortex/face.py`, `cortex/ring.py`) and a
 display daemon may reach only its driver, the geometry and the topic — enforced

@@ -13,9 +13,9 @@ import threading
 import time
 
 from .. import config
-from ..sense import (BMP180, DEFAULT_BARO_ADDR, DEFAULT_BARO_PERIOD,
-                    DEFAULT_TEMP_GPIO, DEFAULT_TEMP_PERIOD, DHT11,
-                    publish_event, subscribe_init, use_topic)
+from ..sense import publish_event, subscribe_init, use_topic
+from .baro import BMP180, DEFAULT_BARO_ADDR, DEFAULT_BARO_PERIOD
+from .dht import DEFAULT_TEMP_GPIO, DEFAULT_TEMP_PERIOD, DHT11
 
 
 def main():
