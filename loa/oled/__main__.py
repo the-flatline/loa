@@ -29,6 +29,7 @@ what it is showing. Renderers live in loa/cortex/frames.py, and the two bytes co
 (1024 face, 72 ring) are the same on the wire and on the glass because they are
 one number: loa/geom.py.
 """
+import sys
 import time
 
 from .. import geom
@@ -75,6 +76,7 @@ def main():
     display = driver_mod.get_display()
     mirror = topic_mod.Mirror(topics=["ripperdoc"])
     seen = {"id": None}
+    rate = {"drawn": 0, "skipped": 0, "at": time.time()}
     try:
         # A panel must never sit on the last process's frozen frame.
         display.clear()
@@ -84,8 +86,25 @@ def main():
             msg = mirror.message("ripperdoc")
             if msg is not None and id(msg) != seen["id"]:
                 seen["id"] = id(msg)
-                _blit(display, msg)
-            time.sleep(0.05)
+                if _blit(display, msg):
+                    rate["drawn"] += 1
+                else:
+                    rate["skipped"] += 1
+                now = time.time()
+                if now - rate["at"] >= 5.0:
+                    el = now - rate["at"]
+                    print("loa-oled: %.0f written/s, %.0f identical-frame/s "
+                          "(the panel was not written when the bytes repeat)"
+                          % (rate["drawn"] / el, rate["skipped"] / el),
+                          file=sys.stderr, flush=True)
+                    rate["drawn"] = rate["skipped"] = 0
+                    rate["at"] = now
+            # No 50ms sleep: that was a 20fps ceiling on a panel whose write
+            # path measures 371fps, and it made the feed's own rate invisible.
+            # Wake often enough to catch every frame the feed publishes; the
+            # blit is skipped when the bytes are identical, so this costs a
+            # compare and not a write.
+            time.sleep(0.001)
     finally:
         mirror.close()
         try:
