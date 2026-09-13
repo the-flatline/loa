@@ -35,6 +35,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Static
 
 from ..cortex import face
+from ..geom import FACE_HEIGHT, FACE_PAGES, FACE_WIDTH
 from .. import topic
 
 DEFAULT_PORT = 8765
@@ -101,7 +102,7 @@ def _get(path):
 
 def _px(frame, x, y):
     """Pixel from the page-major SH1106 framebuffer (same layout as blit)."""
-    return bool(frame.buf[(y // 8) * face.WIDTH + x] & (1 << (y % 8)))
+    return bool(frame.buf[(y // 8) * FACE_WIDTH + x] & (1 << (y % 8)))
 
 
 def oled_art(frame):
@@ -111,11 +112,11 @@ def oled_art(frame):
     panel. Resize the terminal to fit, not the art.
     """
     lines = []
-    for y in range(0, 64, 2):
+    for y in range(0, FACE_HEIGHT, 2):
         row = []
-        for x in range(0, face.WIDTH):
+        for x in range(0, FACE_WIDTH):
             t = _px(frame, x, y)
-            b = _px(frame, x, y + 1) if y + 1 < 64 else False
+            b = _px(frame, x, y + 1) if y + 1 < FACE_HEIGHT else False
             row.append("█" if t and b else "▀" if t else "▄" if b else " ")
         lines.append("".join(row))
     return "\n".join(lines)
@@ -404,14 +405,17 @@ def fetch_sense():
     pir = "SOLID" if st.get("pir_high") else "open"
     snr = "ON" if st.get("snr_cm") is not None else "OFF"
     p = st.get("power") or {}
-    v3, fl = p.get("3V3_SYS_V"), p.get("throttled")
+    v3 = p.get("3V3_SYS_V")
+    # The bitfield rides the `rails` map, typed `double` on the wire — so it
+    # arrives as 983040.0 and a bare `& 0x1` throws. One reader for the bits.
+    fl = face.throttle_bits(p.get("throttled"))
     if v3 is None:
         pwr = "PWR --"
     else:
         pwr = f"3V3 {v3:.2f}V"
-        if fl is not None and fl & 0x1:
+        if fl is not None and fl & face.THROTTLE_UV:
             pwr += " UV!"          # 5V input sagging RIGHT NOW
-        if fl is not None and fl & 0x4:
+        if fl is not None and fl & face.THROTTLE_THR:
             pwr += " THR!"
     return (f" mood {mood:8s} ring {ring:6s} oled {oled_mode:9s} "
             f"page {page:7s} PIR {pir:5s} SNR {snr:3s} "
@@ -470,7 +474,7 @@ class RipperdocApp(App):
         body out of nothing.
         """
         face_b, _ring = feed().frames()
-        if len(face_b) != face.WIDTH * face.PAGES:
+        if len(face_b) != FACE_WIDTH * FACE_PAGES:
             self.query_one("#oled-pane", Static).update(
                 "[orange]NO FEED — the panel has not arrived[/]")
             return

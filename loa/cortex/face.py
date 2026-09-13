@@ -55,6 +55,33 @@ def seal_state(st=None) -> dict:
     return seal if isinstance(seal, dict) else {}
 
 
+#: `vcgencmd get_throttled` bits, and what they mean. Bit 0 is the 5V input
+#: sagging RIGHT NOW, bit 2 is the SoC throttling to cope NOW; bits 1 and 3 are
+#: the response and the heat that already happened. Named here because the PWR
+#: page and the console's status line are two readers of one bitfield.
+THROTTLE_UV = 0x1
+THROTTLE_THR = 0x4
+
+
+def throttle_bits(value):
+    """The Pi's throttle bitfield as an int, off the wire or off the Pi.
+
+    `vcgencmd` hands it over as hex and `power_status()` stores it as an int,
+    but on the TOPIC it rides in the `rails` map, which the schema types as
+    `double` — so a consumer reading the feed gets 983040.0 and `flags & 0x1`
+    raises TypeError. The bits are the bits either way; read them as ints.
+
+    None stays None, and a value that is not a number reads as None rather than
+    0: a body that never reported the flags has not said "no faults".
+    """
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def faults_state(st=None) -> dict:
     """The sweep's view for a frame, from the caller's state.
 
@@ -747,11 +774,11 @@ class Ripperdoc:
         # Fall back to the local PMIC only when the state says nothing, which is
         # the body's own daemon rendering a state that predates this build.
         p = (st or {}).get("power") or power_status()
-        flags = p.get("throttled")
+        flags = throttle_bits(p.get("throttled"))
         self._indicator(frame, 2, 11, "UV",
-                        bool(flags is not None and flags & 0x1))
+                        bool(flags is not None and flags & THROTTLE_UV))
         self._indicator(frame, 40, 11, "THR",
-                        bool(flags is not None and flags & 0x4))
+                        bool(flags is not None and flags & THROTTLE_THR))
         self._rail(frame, 2, 24, "5V", p.get("EXT5V_V"), 3, "V")
         self._rail(frame, 2, 32, "3V3", p.get("3V3_SYS_V"), 3, "V")
         self._rail(frame, 2, 40, "3V3I", p.get("3V3_SYS_A"), 3, "A")

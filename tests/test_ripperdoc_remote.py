@@ -136,3 +136,113 @@ def test_the_data_path_cannot_quietly_regress_to_http():
     assert not offenders, (
         "the console is reading live data over HTTP again: %s — the data path "
         "is the topic, never a poll" % offenders)
+
+
+# ---------------------------------------------------------------------------
+# the TUI's own tick — the pane loop, not just the renderer underneath it
+
+def test_the_idle_console_ticks_without_blowing_up(monkeypatch):
+    """The TUI with NOTHING on the feed must draw its panes and keep running.
+
+    This is the miss that let a crash ship: every test above calls the renderer
+    or the pure helpers directly, so a tick that reached for a name the refactor
+    took off `face` (`face.WIDTH`) only failed where nobody was looking — one
+    frame of the real app, then a traceback. The console's first tick IS the
+    contract: no feed, no data, still a console.
+    """
+    import asyncio
+
+    _no_http(monkeypatch)
+    monkeypatch.setattr(rd, "FEED", _StubFeed())
+
+    async def drive():
+        app = rd.RipperdocApp()
+        async with app.run_test() as pilot:
+            for _ in range(3):
+                app._tick()
+                await pilot.pause()
+            return (app.query_one("#oled-pane").content,
+                    app.query_one("#ring-pane").content)
+
+    oled, ring = asyncio.run(drive())
+    assert "NO FEED" in str(oled)
+    assert "RING OFFLINE" in str(ring)
+
+
+def test_the_console_draws_a_face_frame_that_arrived_on_the_feed(monkeypatch):
+    """A 1024-byte frame off the feed renders as the panel's own art — 128 cols
+    of half-blocks, and the tick's geometry check reads the ONE number."""
+    import asyncio
+
+    from loa import geom
+
+    _no_http(monkeypatch)
+    frame_b = bytearray(geom.FACE_BYTES)
+    frame_b[0] = 0xFF
+    monkeypatch.setattr(rd, "FEED", _StubFeed(face_bytes=bytes(frame_b),
+                                              ring_bytes=bytes([0, 0, 216] * 24)))
+
+    async def drive():
+        app = rd.RipperdocApp()
+        async with app.run_test() as pilot:
+            app._tick()
+            await pilot.pause()
+            return (app.query_one("#oled-pane").content,
+                    app.query_one("#ring-pane").content)
+
+    oled, ring = asyncio.run(drive())
+    oled = str(oled)
+    assert "NO FEED" not in oled
+    lines = oled.splitlines()
+    # byte 0 is x=0, y=0..7 — the first column, both half-blocks, and nothing else
+    assert lines[0] == "\u2588" + " " * (geom.FACE_WIDTH - 1)
+    assert len(lines) == geom.FACE_HEIGHT // 2
+    assert "rgb(0,0,216)" in str(ring)
+
+
+def test_the_throttle_bitfield_off_the_feed_is_read_as_bits(monkeypatch):
+    """`throttled` rides the `rails` map, which the schema types `double`, so the
+    console gets 983040.0 and `flags & 0x1` is a TypeError — the TUI died on its
+    second tick with the body live and healthy (found 2026-09-13). The bits are
+    still the bits: 0x1 is UV now, 0x4 is throttled now.
+    """
+    _no_http(monkeypatch)
+
+    def line(flags):
+        monkeypatch.setattr(rd, "FEED", _StubFeed(state={
+            "mood": "calm",
+            "power": {"3V3_SYS_V": 3.31, "throttled": flags}}))
+        return rd.fetch_sense()
+
+    # 0xF0000 is bits 16-19: the heat and the cap that already happened.
+    # Neither of those is "now", so neither lights.
+    assert "UV!" not in line(0x0) and "THR!" not in line(0xF0000)
+    assert "UV!" in line(0xF0005) and "THR!" in line(0xF0005)
+    assert "THR!" in line(0x4) and "UV!" not in line(0x4)
+    assert "UV!" in line(0x1) and "THR!" not in line(0x1)
+    # a body that never reported the flags says nothing, not "no faults"
+    assert "UV!" not in line(None)
+    # and a reading off the live feed is a float, not an int
+    assert "3.31V" in line(983040.0)
+
+
+def test_the_pwr_page_reads_the_bitfield_the_same_way(monkeypatch):
+    """The PWR page is the other reader of `throttled`, and it takes the same
+    value off the same feed state — so it must not be the one place that still
+    does arithmetic on a float."""
+    from loa.cortex import face
+
+    lit = []
+    monkeypatch.setattr(face.Ripperdoc, "_indicator",
+                        lambda self, frame, x, y, label, level:
+                        lit.append((label, level)))
+    st = {"page": "power", "power": {"throttled": 983045.0,   # 0xF0005
+                                     "3V3_SYS_V": 3.31}}
+    face.Ripperdoc().draw_state(face.Frame(), 0.0, st)
+    assert ("UV", True) in lit and ("THR", True) in lit
+
+    lit.clear()
+    face.Ripperdoc().draw_state(face.Frame(), 0.0,
+                                {"page": "power",
+                                 "power": {"throttled": 983040.0}})   # 0xF0000
+    assert ("UV", False) in lit and ("THR", False) in lit
