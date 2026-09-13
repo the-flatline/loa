@@ -1,0 +1,4 @@
+# The body is aarch64. Build on dixie, install to loa — the Pi never needs a
+# toolchain, and the binary it runs is the one we tested.
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"

@@ -46,6 +46,7 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
 from .. import __version__
+from .. import config
 from . import state as cortex
 from .. import vault as vault_mod
 from . import moods
@@ -449,6 +450,53 @@ def _build(topic, st):
 TICK_TOPICS = ("ripperdoc", "ring", "pir", "sonar", "baro", "weather", "power",
                "fault")
 
+#: The one topic that carries PIXELS: the face rides inside this message, so its
+#: rate is the frame rate and everything else is not.
+FACE_TOPIC = "ripperdoc"
+
+#: The rest. Sensor daemons publish at 1Hz, a change republishes the moment it
+#: lands, and this tick is only the keepalive that stops a late subscriber being
+#: blind forever. There is nothing in these to draw faster for.
+STATE_TOPICS = tuple(t for t in TICK_TOPICS if t != FACE_TOPIC)
+
+#: Frames per second for the face. 120 by default because the panel measures
+#: 371fps of write path (2026-09-13) and the renderer 957fps worst-case ON the
+#: Pi, so 120 is comfortably inside both. `LOA_FACE_FPS=0` means UNCAPPED: no
+#: sleep at all, flat out, which is the experiment, not the configuration.
+DEFAULT_FACE_FPS = 120.0
+FACE_TOPIC_FPS_ENV = "LOA_FACE_FPS"
+
+
+def face_period():
+    """Seconds between face frames; 0.0 means flat out (uncapped)."""
+    raw = os.environ.get(FACE_TOPIC_FPS_ENV)
+    if raw is None:
+        raw = config.load().get("face_fps")
+    try:
+        fps = DEFAULT_FACE_FPS if raw is None else float(raw)
+    except (TypeError, ValueError):
+        fps = DEFAULT_FACE_FPS
+    return 0.0 if fps <= 0 else 1.0 / fps
+
+
+def _publish_face(pub, st=None):
+    """Render and publish the face. THIS is the frame path."""
+    st = cortex.snapshot() if st is None else st
+    _render(st)
+    pub.send(FACE_TOPIC, _build(FACE_TOPIC, st))
+
+
+def _publish_state(pub, st=None):
+    """Publish everything that is not a picture."""
+    st = cortex.snapshot() if st is None else st
+    _render(st)                     # the ring's pixels are a field on its topic
+    for topic in STATE_TOPICS:
+        try:
+            pub.send(topic, _build(topic, st))
+        except Exception as e:                                  # noqa: BLE001
+            print("loa-cortex: publish %s failed: %s: %s"
+                  % (topic, type(e).__name__, e), file=sys.stderr, flush=True)
+
 
 def _publish_all(pub, st=None):
     st = st if st is not None else cortex.get_state()
@@ -512,12 +560,22 @@ def start_publishing(endpoint=None, tick=None):
         stop = threading.Event()
         slot["stop"] = stop
         period = topic_mod.TICK_S if tick is None else tick
+        face = face_period()
 
         def loop():
+            next_face = next_state = 0.0
             while not stop.is_set():
-                t0 = time.time()
-                _publish_all(slot["sock"])
-                stop.wait(max(0.0, period - (time.time() - t0)))
+                now = time.monotonic()
+                if now >= next_face:
+                    _publish_face(slot["sock"])
+                    next_face = now + face
+                if now >= next_state:
+                    _publish_state(slot["sock"])
+                    next_state = now + period
+                now = time.monotonic()
+                wait = min(next_face, next_state) - now
+                if wait > 0:
+                    stop.wait(wait)
         threading.Thread(target=loop, daemon=True).start()
     return slot["sock"]
 

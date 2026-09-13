@@ -51,7 +51,12 @@ _GROUP_KEYS = {
 
 
 def _flatten(data):
-    """{"ring": {"bus": 1, ...}, "oled": {...}} -> {"ring_bus": 1, ...}"""
+    """{"ring": {"bus": 1, ...}, "oled": {...}} -> {"ring_bus": 1, ...}
+
+    A top-level SCALAR is passed through under its own name (`face_fps`), so a
+    setting that belongs to no group can still live in loa.conf instead of
+    having to be an environment variable in a systemd unit.
+    """
     flat = {}
     for name, keys in _GROUP_KEYS.items():
         group = data.get(name)
@@ -59,6 +64,10 @@ def _flatten(data):
             for k in keys:
                 if k in group:
                     flat[f"{name}_{k}"] = group[k]
+    for k, v in data.items():
+        if k in _GROUP_KEYS or isinstance(v, (dict, list)):
+            continue
+        flat[k.lower()] = v
     return flat
 
 

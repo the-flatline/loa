@@ -1,0 +1,15 @@
+[package]
+name = "loa-topic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "loa's wire contract in Rust: the protobuf bindings and the subscriber"
+
+[dependencies]
+prost = "0.13"
+bytes = "1"
+zeromq = { version = "0.6", default-features = false, features = ["tokio-runtime", "tcp-transport"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+
+[build-dependencies]
+prost-build = "0.13"

@@ -1,0 +1,24 @@
+[workspace]
+# The loa in Rust. Same tree, same wire contract, one binary per job:
+#   loa-topic   the wire: protobuf bindings + the subscriber, shared
+#   loa-panel   the OLED daemon — owns SPI0, blits what the feed published
+#   ripperdoc   the bench console, Ratatui
+# Members are added as each one starts existing: a workspace that names a crate
+# that is not there does not build, and a broken build is worse than a short
+# member list.
+members = ["loa-topic"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[profile.release]
+# The point of this layer is frames: keep the loop tight, strip what the
+# daemons do not need. A daemon that panics on a malformed message is a daemon
+# that stops driving the glass, so panics stay abort-free and errors travel.
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "unwind"

@@ -195,6 +195,23 @@ def get_state():
         return st
 
 
+def snapshot():
+    """The state for a RENDERER: a shallow copy, taken under the lock.
+
+    `get_state()` deep-copies, which is right when a caller might write what it
+    was handed. A renderer does not write the state it is given (`face_state`
+    makes its own copy before it touches anything), and at a face rate the
+    deepcopy stops being free: the state carries a 27-rail power map and 60 baro
+    points, and copying that 120+ times a second is more work than drawing the
+    frame it is copied for. Shallow is what the frame loop needs; deep is what
+    an API caller gets.
+    """
+    with _lock:
+        st = dict(_state)
+        st["db_down"] = _db_down
+        return st
+
+
 def set_state(fields):
     """Merge fields into the live state and report the change.
 
