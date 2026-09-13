@@ -39,7 +39,6 @@ dev = [
 # scripts/deploy-panel.sh and scripts/deploy-ring.sh. Console scripts for them
 # would be a second way to start a second implementation of the same display.
 loa-cortex = "loa.cortex.__main__:main"
-loa-sonar = "loa.sonar.__main__:main"
 loa-weather = "loa.weather.__main__:main"
 # NO ripperdoc: the console is the Rust binary at rust/ripperdoc, which the
 # `ripperdoc` shim on PATH runs. A Python console script for it would be a second
@@ -47,23 +46,14 @@ loa-weather = "loa.weather.__main__:main"
 loa-fault = "loa.fault.__main__:main"
 loa-topic-tail = "loa.topic:main"
 
-[tool.setuptools]
-# loa.pb MUST be listed: it holds the GENERATED protobuf bindings, and a wheel
-# built without it installs cleanly and then dies on `No module named loa.pb` at
-# import. Found on the body 2026-09-13 — the source tree always had it, so only
-# an install from git could show it. Every OTHER package is listed for the same
-# reason: one directory per subsystem means an unlisted one installs clean and
-# then dies on import.
-packages = [
-    "loa",
-    "loa.pb",
-    "loa.cortex",
-    "loa.oled",
-    "loa.ring",
-    "loa.motion",
-    "loa.sonar",
-    "loa.weather",
-    "loa.fault",
-    "loa.vault",
-    "loa.ripperdoc",
-]
+[tool.setuptools.packages.find]
+# DISCOVERED, not listed. It used to be a hand-written list of every package,
+# and the first time I deleted one of them (the daemons Rust replaced) the wheel
+# stopped building: `package directory 'loa/oled' does not exist`. A manifest that
+# must be edited every time a module moves is a manifest that gets forgotten —
+# which is what happened. Discovery cannot be out of date.
+#
+# `loa.pb` is picked up like any other package (it has an `__init__.py`), so the
+# 2026-09-13 failure it was listed to prevent — a wheel that installs clean and
+# then dies on `No module named loa.pb` — is still covered.
+include = ["loa*"]

@@ -11,7 +11,7 @@ four sensors — into the folder that owns each one, and the shared module now
 keeps only the framework. The tree says what each file is:
 
   motion/pir.py       the PIR (was SensePoller + the pinctrl readers)
-  sonar/ultrasonic.py the range (was Sonar)
+                          (the range is Rust now: rust/loa-sonar)
   weather/dht.py      the DHT board (was DHT11)
   weather/baro.py     the baro (was BMP180)
 
@@ -27,7 +27,6 @@ import re
 import subprocess
 import sys
 
-from loa.sonar import __main__ as sonar
 from loa.weather import __main__ as weather
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "loa"
@@ -35,13 +34,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent / "loa"
 #: (folder, driver module, the names the driver owns). The names are the point:
 #: `loa.sense` answering for any of them means the driver never really moved.
 DRIVERS = (
-    ("sonar", "ultrasonic", ("Sonar",)),
     ("weather", "dht", ("DHT11",)),
     ("weather", "baro", ("BMP180",)),
 )
 #: The files each daemon is allowed to load: its own folder, the framework
 #: (`loa.sense`) and the shared floor (`loa.topic`, `loa.config`, `loa.geom`).
-DAEMONS = (("sonar", "ultrasonic"), ("weather", ("dht", "baro")))
+DAEMONS = (("weather", ("dht", "baro")),)
 
 
 RUST = pathlib.Path(__file__).resolve().parent.parent / "rust"
@@ -59,7 +57,7 @@ def _rust_cfg_keys():
     for manifest in sorted(RUST.glob("loa-*/src/*.rs")):
         text = manifest.read_text()
         for group, key in re.findall(
-                r'setting\("LOA_[A-Z_]+",\s*"([a-z_]+)",\s*"([a-z_]+)"', text):
+                r'setting\w*\("LOA_[A-Z_]+",\s*"([a-z_]+)",\s*"([a-z_]+)"', text):
             found.add(f"{group}_{key}")
     return found
 
@@ -69,7 +67,7 @@ def _cfg_keys(module):
 
 
 def test_each_sense_has_its_own_entrypoint():
-    for mod in (sonar, weather):
+    for mod in (weather,):
         assert callable(mod.main), f"{mod.__name__} has no main()"
 
 
@@ -86,7 +84,7 @@ def test_the_split_lost_no_setting():
     from loa import config
 
     expected = {f"sense_{k}" for k in config._GROUP_KEYS["sense"]}
-    read = _cfg_keys(sonar) | _cfg_keys(weather) | _rust_cfg_keys()
+    read = _cfg_keys(weather) | _rust_cfg_keys()
     lost = expected - read
     assert not lost, f"the split dropped these settings: {sorted(lost)}"
 
@@ -220,7 +218,7 @@ def test_no_daemon_or_driver_touches_the_cortex():
     # a separate binary that speaks the topic cannot call into this interpreter
     # at all, which is a stronger version of the same rule.
     paths = [ROOT / name / "__main__.py"
-             for name in ("sonar", "weather", "fault")]
+             for name in ("weather", "fault")]
     paths += [ROOT / folder / f"{mod}.py" for folder, mod, _ in DRIVERS]
     for path in paths:
         src = path.read_text()
@@ -241,6 +239,6 @@ def test_every_sense_daemon_claims_its_topic():
     payload on every send (`body_topic_of`), so there is no string to get wrong.
     This checks the Python daemons that are left.
     """
-    for name, topic in (("sonar", "sonar"), ("weather", "weather")):
+    for name, topic in (("weather", "weather"),):
         src = (ROOT / name / "__main__.py").read_text()
         assert f'use_topic("{topic}")' in src, f"{name} does not claim {topic}"

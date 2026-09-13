@@ -152,6 +152,38 @@ pub fn setting(env_key: &str, group: &str, key: &str, default: f64) -> f64 {
         .unwrap_or(default)
 }
 
+/// A string setting — env, then loa.conf, then the default. `serde_json` gives
+/// back a bool or a number as well as a string, so all three are accepted and
+/// rendered; a missing key is the default and never an error.
+pub fn setting_str(env_key: &str, group: &str, key: &str, default: &str) -> String {
+    if let Ok(v) = std::env::var(env_key) {
+        if !v.is_empty() {
+            return v;
+        }
+    }
+    let path = std::env::var("HOME").unwrap_or_else(|_| "/home/flatline".into()) + "/loa.conf";
+    let json: serde_json::Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(serde_json::Value::Null);
+    match json.get(group).and_then(|g| g.get(key)) {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Bool(b)) => b.to_string(),
+        Some(serde_json::Value::Number(n)) => n.to_string(),
+        _ => default.to_string(),
+    }
+}
+
+/// A yes/no setting, with the SAME truthiness the Python reader uses: the
+/// offline spellings are the point, because loa.conf carries `snr_enabled:
+/// false` for a module that is deliberately unplugged, and a reader that only
+/// understood `false` would turn the sonar back on.
+pub fn setting_bool(env_key: &str, group: &str, key: &str, default: bool) -> bool {
+    let raw = setting_str(env_key, group, key, if default { "true" } else { "false" });
+    !matches!(raw.trim().to_ascii_lowercase().as_str(),
+              "0" | "false" | "no" | "off" | "")
+}
+
 /// A slow loop that keeps running: a daemon whose poll returns instantly would
 /// burn a core doing nothing.
 pub fn pause(secs: f64) {

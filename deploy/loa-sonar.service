@@ -1,10 +1,18 @@
 [Unit]
-Description=loa sonar — ultrasonic range daemon (TRIG 23 / ECHO 22)
+Description=loa sonar — the ultrasonic ranger (TRIG 23 / ECHO 22)
 After=network.target loa-cortex.service
 
 [Service]
 Type=simple
-ExecStart=/home/flatline/venv/bin/loa-sonar
+# THE RUST DAEMON (rust/loa-sonar), installed by scripts/deploy-rust.sh. Same
+# binary name as the Python console script it replaced: the unit name and the
+# sweep's expectations both say loa-sonar.
+#
+# The Python version timed the echo pulse inside an interpreter, with a
+# perf_counter call and a syscall in the measuring loop. This one times it
+# against a monotonic clock with nothing in between, which is what the driver
+# wanted gpiod for in the first place.
+ExecStart=/usr/local/bin/loa-sonar
 Restart=always
 RestartSec=3
 User=flatline

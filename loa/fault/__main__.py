@@ -41,8 +41,7 @@ UNITS = ("loa-cortex", "loa-panel", "loa-motion", "loa-sonar", "loa-weather",
 # see them — their unit checks cover them being missing. Naming them here would
 # be a check that can never fire.
 SCRIPTS_DIR = "/home/flatline/venv/bin"
-SCRIPTS = ("loa-cortex", "loa-sonar", "loa-weather", "loa-fault",
-           "loa-topic-tail")
+SCRIPTS = ("loa-cortex", "loa-weather", "loa-fault", "loa-topic-tail")
 
 # Who should hold which SPI bus. Two writers on one bus is the classic
 # ghost-in-the-panel fault.
