@@ -96,9 +96,13 @@ pub struct Envelope {
 }
 
 impl Envelope {
-    /// The oneof variant name, i.e. what the payload actually is.
-    pub fn body(&self) -> String {
-        format!("{:?}", self.env.body.as_ref().map(|b| b as *const _))
+    /// The ripperdoc payload, when this message is one. The face rides inside
+    /// it, and only inside it.
+    pub fn ripperdoc(&self) -> Option<&pb::Ripperdoc> {
+        match self.env.body.as_ref() {
+            Some(pb::envelope::Body::Ripperdoc(m)) => Some(m),
+            _ => None,
+        }
     }
 }
 

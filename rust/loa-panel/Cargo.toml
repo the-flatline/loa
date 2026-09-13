@@ -1,0 +1,16 @@
+[package]
+name = "loa-panel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "loa's OLED daemon: owns SPI0, blits the face the cortex rendered"
+
+[dependencies]
+loa-topic = { path = "../loa-topic" }
+tokio = { workspace = true }
+# Pure Rust: no C dependency to cross-compile, no headers on the body.
+spidev = "0.6"
+# DC and RES come from liblgpio.so.1, which is already on the Pi for the ring —
+# loaded at RUNTIME so the build needs no headers and the binary no link-time
+# dependency on a library the body happens to have.
+libloading = "0.8"
