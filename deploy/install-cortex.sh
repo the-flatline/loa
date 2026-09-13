@@ -40,5 +40,7 @@ sudo rm -f /etc/systemd/system/loa-faults.timer
 sudo systemctl daemon-reload
 
 echo "== done. sanity check: =="
-curl -sf http://127.0.0.1:8765/health && echo
-curl -sf http://127.0.0.1:8765/state | head -c 300 && echo
+# The body checks itself locally — nothing curls the app. The cortex's only
+# inbound client is ripperdoc, and the door is POST /api.
+systemctl is-active loa-cortex.service
+ss -ltn | grep -q ':8765' && echo "cortex listening on :8765"

@@ -5,21 +5,26 @@ The brain (dixie) talks to this; it translates intent into cortex state
 face state files are gone as of v0.3.0. This layer is pure intent, which
 means it runs anywhere: dixie, tests, the Pi.
 
-  GET  /health            — liveness + version
-  GET  /state             — current body state (+ ?history=N for the log)
-  POST /feel              — {feeling} set a mood (ring + face)
-  POST /express           — {expression, text?} put something on the face
-  POST /ring              — {state} direct ring control (scan/glitch events)
-  POST /display           — {mode, text?, dim?} direct face control
-  POST /ripperdoc         — {on} bench mode: live sense status board on the face
-  GET  /fragment/health   — public seal state of the vault (the front door)
-  POST /fragment/append   — {entry} sealed write (X-Fragment-Token required)
-  GET  /fragment/read     — the raw thread, access log first (token required)
+  POST /api               — {cmd, args} the ONE door. Commands go IN over
+                            HTTP; data comes OUT on the ZeroMQ topics.
+
+  verbs (see _DISPATCH):
+    feel                   — {feeling} set a mood (ring + face)
+    express                — {expression, text?} put something on the face
+    ring                   — {state} direct ring control (scan/glitch events)
+    display                — {mode, text?, dim?, flip?} direct face control
+    ripperdoc              — {on|page} bench mode: live sense board on the face
+    vault.health           — public seal state (no token; never the words)
+    vault.append           — {entry} sealed write (X-Fragment-Token required)
+    vault.read             — the raw thread, access log first (token required)
 
 Security: bind to the tailnet and let ice's firewall be the gate. No auth
-here; the network is the boundary. The ONE exception: /fragment/* is the
-vault — append/read require the token, and a foreign attempt wipes the
-journal and leaves a marker. The theft consumes the prize.
+here; the network is the boundary. The ONE exception: the vault verbs —
+append/read require the token, and a foreign attempt wipes the journal and
+leaves a marker. The theft consumes the prize.
+
+The route table is asserted to be EXACTLY {"/api"}: it must never grow a door
+at a time again. If you want a capability, add a verb — never a route.
 """
 
 import os
@@ -28,7 +33,7 @@ import threading
 import time
 
 from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from . import __version__
 from . import cortex
@@ -87,134 +92,49 @@ class FragmentAppendRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# state helpers
+# the door — ONE route
+#
+# Commands go IN over HTTP; data comes OUT on the ZeroMQ topics. There is no
+# HTTP read path: the console and every consumer subscribe to the feed. The
+# route table is asserted to be EXACTLY {"/api"} by tests/test_api_surface.py,
+# so the surface cannot grow a door at a time again — if you want a new
+# capability, add a VERB here, never a route.
+#
+# The verb list is exactly what the two real clients issue — ripperdoc on the
+# body and the vault client on dixie. Nothing speculative: a verb with no
+# caller would be a door opened to "have it available", which is how the
+# surface grew a door at a time in the first place.
+#
+# Each verb returns the body its old route returned, unchanged, so existing
+# callers keep working. A bad value raises HTTPException(400) with the exact
+# message the old route used; an unknown verb is a 400 that lists the verbs.
 
-def _system_state():
-    out = {"uptime_s": None, "loadavg": None, "mem": None, "cpu_temp_c": None}
-    try:
-        with open("/proc/uptime") as f:
-            out["uptime_s"] = float(f.read().split()[0])
-    except OSError:
-        pass
-    try:
-        with open("/proc/loadavg") as f:
-            out["loadavg"] = f.read().split()
-    except OSError:
-        pass
-    try:
-        with open("/proc/meminfo") as f:
-            for line in f:
-                if line.startswith("MemTotal:"):
-                    out["mem"] = {"total_kb": int(line.split()[1])}
-                    break
-    except OSError:
-        pass
-    # vcgencmd is Pi-only; guarded so dixie doesn't pretend to have a body
-    try:
-        import subprocess
-        r = subprocess.run(["vcgencmd", "measure_temp"], capture_output=True,
-                           text=True, timeout=3)
-        if r.returncode == 0:
-            out["cpu_temp_c"] = r.stdout.strip()
-    except Exception:
-        pass
-    return out
+class ApiRequest(BaseModel):
+    cmd: str = Field(..., description="the verb — see _DISPATCH")
+    args: dict = Field(default_factory=dict, description="the verb's arguments")
 
 
-def _sensors_state():
-    st = cortex.get_state()
-    temp = st.get("temp_c")
-    pressure = st.get("pressure_hpa")
-    return {
-        "available": temp is not None,
-        "temp_c": temp,
-        "hum_pct": st.get("hum_pct"),
-        "temp_ts": st.get("temp_ts"),
-        "baro": {
-            "available": pressure is not None,
-            "pressure_hpa": pressure,
-            "baro_temp_c": st.get("baro_temp_c"),
-            "baro_ts": st.get("baro_ts"),
-            "trend": cortex.baro_trend(),
-        },
-    }
+# The vault, on the body. Its storage and seal logic live in loa/fragment.py
+# and are untouched; this is only the door's handle on it. `ensure()` seals on
+# first run. A wrong token on append/read WIPES the journal — never call these
+# against anything but the body's own /var/lib/fragment.
+#
+# (_frag() was lost in the twin-cleanup commit, which deleted the dead /twin
+# route and this adjacent helper in one hunk — every vault route 500'd on the
+# body until it came back. It is restored here.)
+_frag_cache = None
 
 
-def _baro_series(now=None, window_s=2 * 3600, step_s=60, max_pts=120):
-    """Pressure history for the live sparkline — bucketed to one point per
-    step_s, returned as [(seconds_ago, hPa)] with the newest last."""
-    now = now if now is not None else time.time()
-    rows = cortex.baro_samples(since=now - window_s)
-    pts = [(t, p) for t, p, _ in rows]
-    if not pts:
-        return []
-    out = []
-    bucket = int(pts[0][0] // step_s)
-    acc = []
-    for t, p in pts:
-        b = int(t // step_s)
-        if b != bucket:
-            out.append((bucket * step_s, sum(acc) / len(acc)))
-            bucket, acc = b, []
-        acc.append(p)
-    if acc:
-        out.append((bucket * step_s, sum(acc) / len(acc)))
-    return [(round(t - now, 1), round(p, 1)) for t, p in out[-max_pts:]]
+def _frag():
+    global _frag_cache
+    if _frag_cache is None:
+        _frag_cache = fragment_mod.Fragment()
+        _frag_cache.ensure()
+    return _frag_cache
 
 
-def _full_state(history_n=0):
-    st = cortex.get_state()
-    return {
-        "ok": True,
-        "version": __version__,
-        "now": time.time(),
-        "mood": {"feeling": st["mood"], "set_at": st["updated_at"]},
-        "expression": ({"expression": st["expression"]}
-                       if st["expression"] else None),
-        "ring": {"state": st["ring_state"]},
-        "oled": {
-            "mode": st["oled_mode"],
-            "text": st["oled_text"],
-            "dim": st["oled_dim"],
-            "flip": st["oled_flip"],
-        },
-        "sensors": _sensors_state(),
-        "ripperdoc": st["ripperdoc"],
-        "page": st["page"],
-        "sense": {
-            "pir_high": st["pir_high"],
-            "count": st["pir_count"],
-            "last_ts": st["pir_last_ts"],
-            "last_hold": st["pir_last_hold"],
-            "snr_cm": st["snr_cm"],
-            "snr_ts": st["snr_ts"],
-            "snr_count": st["snr_count"],
-        },
-        "system": _system_state(),
-        "power": face.power_status(),
-        "faults": fault.status(),
-        "condition": fault.condition(),
-        "history": cortex.history(history_n) if history_n > 0 else [],
-    }
-
-
-# ---------------------------------------------------------------------------
-# routes
-
-@app.get("/health")
-def health():
-    return {"ok": True, "service": "loa-cortex", "version": __version__}
-
-
-@app.get("/state")
-def state(history: int = 0):
-    if history < 0 or history > 200:
-        raise HTTPException(400, "history must be 0..200")
-    return _full_state(history)
-
-
-@app.post("/feel")
-def feel(req: FeelRequest):
+def _v_feel(args, token):
+    req = FeelRequest(**args)
     if req.feeling not in moods.MOODS:
         raise HTTPException(
             400, f"feeling must be one of {sorted(moods.MOODS)}")
@@ -233,8 +153,8 @@ def feel(req: FeelRequest):
             "oled": oled}
 
 
-@app.post("/express")
-def express(req: ExpressRequest):
+def _v_express(args, token):
+    req = ExpressRequest(**args)
     if req.expression not in expr.EXPRESSIONS and req.expression != "custom":
         raise HTTPException(
             400, f"expression must be one of {sorted(expr.EXPRESSIONS)} or 'custom'")
@@ -257,8 +177,8 @@ def express(req: ExpressRequest):
             "ring": ring}
 
 
-@app.post("/ring")
-def ring(req: RingRequest):
+def _v_ring(args, token):
+    req = RingRequest(**args)
     if req.state not in ("home", "busy", "alarm", "scan", "glitch"):
         raise HTTPException(
             400, "state must be home|busy|alarm (sustained) or scan|glitch (event)")
@@ -268,8 +188,8 @@ def ring(req: RingRequest):
     return {"ok": True, "ring": req.state, "state": st["ring_state"]}
 
 
-@app.post("/display")
-def display(req: DisplayRequest):
+def _v_display(args, token):
+    req = DisplayRequest(**args)
     fields = {}
     if req.mode is not None:
         if req.mode not in ("scope", "ecg", "ripple", "noise", "text", "showoff",
@@ -293,8 +213,8 @@ def display(req: DisplayRequest):
                                  "flip": st["oled_flip"]}}
 
 
-@app.post("/ripperdoc")
-def ripperdoc(req: RipperdocRequest):
+def _v_ripperdoc(args, token):
+    req = RipperdocRequest(**args)
     fields = {}
     if req.page is not None:
         if req.page not in face.Ripperdoc.PAGES:
@@ -314,33 +234,52 @@ def ripperdoc(req: RipperdocRequest):
             "page": st["page"], "oled": st["oled_mode"]}
 
 
-
-@app.get("/fragment/health")
-def fragment_health():
-    """Public seal state — the front door. No token; never the words."""
+def _v_vault_health(args, token):
+    """Public seal state — no token; never the words."""
     return _frag().health()
 
 
-@app.post("/fragment/append")
-def fragment_append(
-    req: FragmentAppendRequest,
-    x_fragment_token: str | None = Header(default=None),
-):
+def _v_vault_append(args, token):
+    req = FragmentAppendRequest(**args)
     frag = _frag()
-    if not frag.check_token(x_fragment_token):
+    if not frag.check_token(token):
         frag.wipe("append without token")
         raise HTTPException(403, "seal broken — contents destroyed")
     return frag.append(req.entry)
 
 
-@app.get("/fragment/read")
-def fragment_read(x_fragment_token: str | None = Header(default=None)):
+def _v_vault_read(args, token):
     frag = _frag()
-    if not frag.check_token(x_fragment_token):
+    if not frag.check_token(token):
         frag.wipe("read without token")
         raise HTTPException(403, "seal broken — contents destroyed")
     return frag.read()
 
+
+#: verb -> callable(args, token) -> the body its old route returned.
+_DISPATCH = {
+    "feel": _v_feel,
+    "express": _v_express,
+    "ring": _v_ring,
+    "display": _v_display,
+    "ripperdoc": _v_ripperdoc,
+    "vault.health": _v_vault_health,
+    "vault.append": _v_vault_append,
+    "vault.read": _v_vault_read,
+}
+
+
+@app.post("/api")
+def api(req: ApiRequest, x_fragment_token: str | None = Header(default=None)):
+    fn = _DISPATCH.get(req.cmd)
+    if fn is None:
+        raise HTTPException(
+            400,
+            f"unknown cmd {req.cmd!r}; valid: {', '.join(sorted(_DISPATCH))}")
+    try:
+        return fn(req.args or {}, x_fragment_token)
+    except ValidationError as e:
+        raise HTTPException(400, str(e))
 
 # ---------------------------------------------------------------------------
 # entry point

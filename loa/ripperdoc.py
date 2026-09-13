@@ -13,8 +13,8 @@ Two faces, one command:
 Runs anywhere. Its DATA comes off the topic feed — a ZeroMQ subscription to the
 body's own publisher (`LOA_TOPIC_ENDPOINT`, else `LOA_API_BIND` on the feed's
 port) — so point it at the body from dixie (`LOA_API_BIND=192.168.1.200`) and it
-never has to run ON the Pi. HTTP is for COMMANDS ONLY (`_post` to /ripperdoc,
-/display, /feel); nothing a pane draws is ever fetched. It is a full-screen
+never has to run ON the Pi. HTTP is for COMMANDS ONLY (`_post` to the ONE door,
+POST /api, with the ripperdoc/display/feel verbs); nothing a pane draws is ever fetched. It is a full-screen
 redraw loop: on the uncooled Pi at 68% of a core it drove the SoC onto its
 thermal limit (2026-09-12). The body senses and exposes; drawing belongs where
 the CPU is.
@@ -74,10 +74,11 @@ def _base():
     return f"http://{host}:{port}"
 
 
-def _post(path, payload):
+def _post(cmd, payload):
+    """The ONE door: POST /api {"cmd", "args"}. A command, never a read."""
     req = urllib.request.Request(
-        f"{_base()}{path}",
-        data=json.dumps(payload).encode(),
+        f"{_base()}/api",
+        data=json.dumps({"cmd": cmd, "args": payload}).encode(),
         headers={"Content-Type": "application/json"},
         method="POST")
     with urllib.request.urlopen(req, timeout=5) as resp:
@@ -497,49 +498,49 @@ class RipperdocApp(App):
         panel's own report — never off a /state read."""
         try:
             on = bool(body_state().get("ripperdoc"))
-            _post("/ripperdoc", {"on": not on})
+            _post("ripperdoc", {"on": not on})
         except Exception:
             pass
 
     def action_page_sensors(self):
         try:
-            _post("/ripperdoc", {"page": "sensors"})
+            _post("ripperdoc", {"page": "sensors"})
         except Exception:
             pass
 
     def action_page_pir(self):
         try:
-            _post("/ripperdoc", {"page": "pir"})
+            _post("ripperdoc", {"page": "pir"})
         except Exception:
             pass
 
     def action_page_snr(self):
         try:
-            _post("/ripperdoc", {"page": "snr"})
+            _post("ripperdoc", {"page": "snr"})
         except Exception:
             pass
 
     def action_page_temp(self):
         try:
-            _post("/ripperdoc", {"page": "temp"})
+            _post("ripperdoc", {"page": "temp"})
         except Exception:
             pass
 
     def action_page_frag(self):
         try:
-            _post("/ripperdoc", {"page": "frag"})
+            _post("ripperdoc", {"page": "frag"})
         except Exception:
             pass
 
     def action_page_power(self):
         try:
-            _post("/ripperdoc", {"page": "power"})
+            _post("ripperdoc", {"page": "power"})
         except Exception:
             pass
 
     def action_page_fault(self):
         try:
-            _post("/ripperdoc", {"page": "fault"})
+            _post("ripperdoc", {"page": "fault"})
         except Exception:
             pass
 
@@ -553,7 +554,7 @@ class RipperdocApp(App):
         """
         try:
             st = body_state()
-            _post("/display", {"flip": not bool(st.get("oled_flip",
+            _post("display", {"flip": not bool(st.get("oled_flip",
                                                        face.DEFAULT_FLIP))})
         except Exception:
             pass
@@ -563,7 +564,7 @@ class RipperdocApp(App):
         names = list(moods.MOODS)
         self._mood_i = (self._mood_i + 1) % len(names)
         try:
-            _post("/feel", {"feeling": names[self._mood_i]})
+            _post("feel", {"feeling": names[self._mood_i]})
         except Exception:
             pass
 
@@ -586,17 +587,17 @@ def main():
             body = {"on": True}
             if page:
                 body["page"] = page
-            r = _post("/ripperdoc", body)
+            r = _post("ripperdoc", body)
             print(f"ripperdoc ON — page {r['page']}")
         elif cmd == "off":
-            r = _post("/ripperdoc", {"on": False})
+            r = _post("ripperdoc", {"on": False})
             print(f"ripperdoc OFF — {r['oled']}")
         elif cmd == "page":
             page = args[1] if len(args) > 1 else None
             if page is None:
                 print("usage: ripperdoc page <sensors|pir|snr|temp|frag|power|fault>")
                 return 2
-            r = _post("/ripperdoc", {"page": page})
+            r = _post("ripperdoc", {"page": page})
             print(f"page {r['page']}")
         elif cmd == "status":
             # A READ, so it comes off the feed like everything else — there is

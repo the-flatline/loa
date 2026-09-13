@@ -251,10 +251,16 @@ def _check_disk(rows):
 
 
 def _check_api(rows):
-    rc, out, _ = _run("curl -s -m 5 http://127.0.0.1:8765/health")
-    if '"ok"' not in out:
+    """The body does not curl its own door. The inbound path has one client —
+    ripperdoc — and the fault sweep is not it, so this checks what the body can
+    see locally: the unit is running and :8765 is listening. A cortex that is
+    up but not bound, or bound but crash-looping, still reads as dead."""
+    active = _run("systemctl is-active loa-cortex.service")[1]
+    listening = ":8765" in _run("ss -ltn")[1]
+    if active != "active" or not listening:
         rows.append({"level": "fault", "code": "API DEAD",
-                     "text": f"cortex API not answering on :8765 ({out[:60]!r})"})
+                     "text": f"cortex not answering on :8765 (unit {active!r}, "
+                             f"port {'listening' if listening else 'closed'})"})
 
 
 def _check_i2c(rows):

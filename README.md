@@ -52,15 +52,28 @@ brain (dixie) ──HTTP──> loa-cortex (FastAPI, :8765) ──> cortex.db (S
 
 ## API
 
-| Route | Body | Effect |
+The door is **ONE route**: `POST /api`. Commands go IN over HTTP; data comes
+OUT on the ZeroMQ topics — there is no HTTP read path, by design. Every verb
+returns the body its old route returned, so callers do not change shape.
+
+| Verb | Args | Effect |
 |---|---|---|
-| `GET /health` | — | liveness + version |
-| `GET /state` | `?history=N` | full body state + event log |
-| `POST /feel` | `{"feeling": "calm"}` | set a mood (ring + face) |
-| `POST /express` | `{"expression": "happy"}` or `{"expression":"custom","text":"..."}` | face says something |
-| `POST /ring` | `{"state": "scan"}` | direct ring: home/busy/alarm, scan/glitch events |
-| `POST /display` | `{"mode": "ecg", "dim": true}` | direct face control |
-| `POST /ripperdoc` | `{"on": true}` | bench mode: face becomes live sense status board |
+| `feel` | `{"feeling": "calm"}` | set a mood (ring + face) |
+| `express` | `{"expression": "happy"}` or `{"expression":"custom","text":"..."}` | face says something |
+| `ring` | `{"state": "scan"}` | direct ring: home/busy/alarm, scan/glitch events |
+| `display` | `{"mode": "ecg", "dim": true}` | direct face control |
+| `ripperdoc` | `{"on": true}` / `{"page": "pir"}` | bench mode: face becomes live sense status board |
+| `vault.health` | — | public seal state of the vault (no token) |
+| `vault.append` | `{"entry": "..."}` | sealed write (`X-Fragment-Token`) |
+| `vault.read` | — | the raw thread, access log first (`X-Fragment-Token`) |
+
+Request body: `{"cmd": "<verb>", "args": {...}}`. An unknown verb is a `400`
+that lists the valid verbs. The verb list is exactly what the two real clients
+issue — ripperdoc on the body and the vault client on dixie. There is no
+liveness route and no `ping`: the connection into the body is via the
+ripperdoc, and a verb with no caller would be a door opened to "have it
+available". `tests/test_api_surface.py` asserts the route table is exactly
+`{"/api"}`, so the surface cannot grow a door at a time again.
 
 ### Feelings (moods)
 
