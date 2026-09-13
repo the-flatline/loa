@@ -30,7 +30,7 @@ sudo systemctl enable --now loa-ring loa-oled loa-cortex \
 
 echo "== retiring units that no longer exist =="
 # loa-record: the CORTEX writes records now (it is the only writer of the
-# store). loa-relay: it polled and wrote twin.json — the bridge this design
+# store). loa-relay: it polled and wrote feed.json — the bridge this design
 # forbids. loa-sense: split into loa-motion / loa-sonar / loa-weather.
 for dead in loa-presence loa-sense loa-api loa-faults loa-ctl loa-record loa-relay; do
   sudo systemctl disable --now "$dead" 2>/dev/null || true

@@ -288,7 +288,7 @@ class DHT11:
     disconnected line returns None instead of hanging the daemon.
 
     Reads land in cortex as temp_c / hum_pct / temp_ts / temp_count so the
-    ripperdoc board and the twin can show the room.
+    ripperdoc board and the live can show the room.
     """
 
     def __init__(self, gpio=DEFAULT_TEMP_GPIO, period=DEFAULT_TEMP_PERIOD,
@@ -429,7 +429,7 @@ class BMP180:
     returns None instead of hanging the daemon.
 
     Reads land in cortex as pressure_hpa / baro_temp_c / baro_ts /
-    baro_count so the ripperdoc board and the twin can show the air.
+    baro_count so the ripperdoc board and the live can show the air.
     """
 
     def __init__(self, bus=DEFAULT_BARO_BUS, addr=DEFAULT_BARO_ADDR,

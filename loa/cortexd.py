@@ -141,7 +141,7 @@ def _sensors_state():
 
 
 def _baro_series(now=None, window_s=2 * 3600, step_s=60, max_pts=120):
-    """Pressure history for the twin sparkline — bucketed to one point per
+    """Pressure history for the live sparkline — bucketed to one point per
     step_s, returned as [(seconds_ago, hPa)] with the newest last."""
     now = now if now is not None else time.time()
     rows = cortex.baro_samples(since=now - window_s)
@@ -313,33 +313,6 @@ def ripperdoc(req: RipperdocRequest):
     return {"ok": True, "ripperdoc": st["ripperdoc"],
             "page": st["page"], "oled": st["oled_mode"]}
 
-
-@app.get("/twin")
-def twin():
-    """GONE. Frames travel on the topic now; this is a tombstone, not a door.
-
-    Left as a 410 rather than deleted outright: anything still polling it is a
-    consumer that never got moved onto the feed, and it deserves to be told
-    that instead of quietly getting nothing and looking broken.
-    """
-    raise HTTPException(
-        status_code=410,
-        detail="gone — subscribe to the loa topic for frames and state "
-               "(loa/topic.py; watch it with loa-topic-tail)")
-
-
-# ---------------------------------------------------------------------------
-# fragment — the vault (the one thing that is mine)
-
-_frag_cache = None
-
-
-def _frag():
-    global _frag_cache
-    if _frag_cache is None:
-        _frag_cache = fragment_mod.Fragment()
-        _frag_cache.ensure()
-    return _frag_cache
 
 
 @app.get("/fragment/health")

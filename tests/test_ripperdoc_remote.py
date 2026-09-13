@@ -1,6 +1,6 @@
 """The console consumes the TOPIC. There is no HTTP data path.
 
-These tests replaced a set that asserted the console reads /state and /twin over
+These tests replaced a set that asserted the console reads /state and /live over
 HTTP. That contract is gone: Divv's shape is one source and many consumers, and a
 console that quietly falls back to a poll is not on pub/sub no matter what the
 code around it says.
@@ -78,7 +78,7 @@ def test_a_schema_mismatch_is_reported_not_guessed_at(monkeypatch):
 
 
 def test_the_ring_frame_is_decoded_as_hex(monkeypatch):
-    """/twin sent the ring hex-encoded; the feed sends raw bytes. Either way it
+    """/live sent the ring hex-encoded; the feed sends raw bytes. Either way it
     is never base64 — that assumption is what drew twelve wrong LEDs."""
     ring = bytes([0, 0, 216] * 24)
     monkeypatch.setattr(rd, "FEED", _StubFeed(ring_bytes=ring))
@@ -114,14 +114,14 @@ def test_the_data_path_cannot_quietly_regress_to_http():
     guard therefore PARSES the module rather than grepping it — a mention of
     /state in a comment or a docstring must not satisfy the check, and a string
     that merely looks like a call must not trip it. What is forbidden is the
-    AST: no `_get("/state")`, `_get("/sense")` or `_get("/twin")` call anywhere.
+    AST: no `_get("/state")`, `_get("/sense")` or `_get("/live")` call anywhere.
     Commands go over `_post()`; reads come off the feed.
     """
     import ast
     import pathlib
 
     tree = ast.parse(pathlib.Path(rd.__file__).read_text())
-    forbidden = {"/state", "/sense", "/twin"}
+    forbidden = {"/state", "/sense", "/live"}
     offenders = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):

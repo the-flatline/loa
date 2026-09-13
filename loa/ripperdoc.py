@@ -2,7 +2,7 @@
 
 Two faces, one command:
 
-  ripperdoc            — the TUI: Workbench-chrome console with digital twin
+  ripperdoc            — the TUI: Workbench-chrome console with digital live
                          panes (OLED + ring rendered by the REAL loa
                          renderers), live status, ripperdoc/mood/page keys.
   ripperdoc on [page]  — flip ripperdoc on (page: sensors|pir|snr|temp|frag|power|fault)
@@ -58,14 +58,14 @@ Screen {{ background: {BACKDROP}; }}
 #menubar {{ height: 1; background: {BLUE}; color: {WHITE}; }}
 #status {{ height: 3; background: {BLACK}; color: {WHITE};
           border: solid {BLUE}; }}
-#twin {{ height: auto; }}
+#live {{ height: auto; }}
 .pane {{ border: solid {BLUE}; background: {BLACK}; }}
 .pane-title {{ color: {ORANGE}; }}
 #log {{ height: 8; border: solid {BLUE}; color: {DIM}; }}
 Footer {{ background: {BLUE}; color: {WHITE}; }}
 """
 
-MENUS = ("STATUS", "TWIN", "LAB", "CONTROL", "LOG")
+MENUS = ("STATUS", "BODY", "LAB", "CONTROL", "LOG")
 
 
 def _base():
@@ -106,7 +106,7 @@ def _px(frame, x, y):
 def oled_art(frame):
     """128x64 framebuffer -> half-block art, HARD-LOCKED to the matrix.
 
-    One cell = 1x2 pixels: 128 cols x 32 rows. No scaling — the twin is the
+    One cell = 1x2 pixels: 128 cols x 32 rows. No scaling — the live is the
     panel. Resize the terminal to fit, not the art.
     """
     lines = []
@@ -187,7 +187,7 @@ def _faults_from(msg):
 class Feed:
     """The console's data. ONE source: the topic.
 
-    Not /state and not /twin — both are gone, and neither is a fallback. A
+    Not /state and not /live — both are gone, and neither is a fallback. A
     fallback that quietly works is how a console ends up looking like it is on
     pub/sub while it is polling, which is exactly what happened here and is why
     Divv had to insist more than once.
@@ -197,7 +197,7 @@ class Feed:
     so the merge is by UPDATE, never replace: a motion reading carrying
     pir_high=false must not wipe the mood.
 
-    The twin comes off two topics and no side-channel: the face (1024 B, 1bpp)
+    The live comes off two topics and no side-channel: the face (1024 B, 1bpp)
     rides INSIDE the ripperdoc message, the ring (72 B, 24 px RGB) on the ring
     topic. Raw bytes, never hex and never base64 — the encoding that drew twelve
     wrong LEDs and read as a hardware fault.
@@ -248,7 +248,7 @@ class Feed:
         """One topic message into the flat state the pages already speak."""
         msg = getattr(env, name)
         if name == "ripperdoc":
-            # The panel, as the body drove it. This is the twin: hold the bytes
+            # The panel, as the body drove it. This is the live: hold the bytes
             # and render them, do not re-derive them — the console's copy of the
             # renderer drifts from the body's the moment either one changes.
             if msg.HasField("face"):
@@ -370,8 +370,8 @@ def body_state():
     return feed().state_copy()
 
 
-def twin_payload():
-    """The body's frames, from the feed. `/twin` is GONE.
+def live_payload():
+    """The body's frames, from the feed. `/live` is GONE.
 
     Kept as a function because callers want the same shape, but there is no
     request behind it any more.
@@ -439,12 +439,12 @@ class RipperdocApp(App):
     def compose(self) -> ComposeResult:
         yield Static("  " + "   ".join(MENUS), id="menubar")
         yield Static("boot", id="status")
-        with Horizontal(id="twin"):
+        with Horizontal(id="live"):
             with Vertical(classes="pane"):
-                yield Static("OLED twin", classes="pane-title")
+                yield Static("FACE", classes="pane-title")
                 yield Static("", id="oled-pane")
             with Vertical(classes="pane"):
-                yield Static("RING twin", classes="pane-title")
+                yield Static("RING", classes="pane-title")
                 yield Static("", id="ring-pane")
         yield Static("", id="log")
         yield Footer()
@@ -463,7 +463,7 @@ class RipperdocApp(App):
 
         The bytes ride INSIDE the ripperdoc message (1024 B, 1bpp). Drawing them
         beats re-running the renderer here: the console's copy of the renderer
-        drifts from the body's the moment either changes, and a twin that
+        drifts from the body's the moment either changes, and a live that
         re-derives the picture is a second implementation wearing the first
         one's name. A feed with no face yet SAYS so — it does not draw a healthy
         body out of nothing.
