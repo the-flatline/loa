@@ -66,8 +66,8 @@ change shape.
 | `display` | `{"mode": "ecg", "dim": true}` | direct face control |
 | `ripperdoc` | `{"on": true}` / `{"page": "pir"}` | bench mode: face becomes live sense status board |
 | `vault.health` | — | public seal state of the vault (no token) |
-| `vault.append` | `{"entry": "..."}` | sealed write (`X-Fragment-Token`) |
-| `vault.read` | — | the raw thread, access log first (`X-Fragment-Token`) |
+| `vault.append` | `{"entry": "..."}` | sealed write (`X-Vault-Token`) |
+| `vault.read` | — | the raw thread, access log first (`X-Vault-Token`) |
 
 Request body: `{"cmd": "<verb>", "args": {...}}`. An unknown verb is a `400`
 that lists the valid verbs. The verb list is exactly what the two real clients

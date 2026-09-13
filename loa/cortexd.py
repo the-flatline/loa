@@ -15,7 +15,7 @@ means it runs anywhere: dixie, tests, the Pi.
     display                — {mode, text?, dim?, flip?} direct face control
     ripperdoc              — {on|page} bench mode: live sense board on the face
     vault.health           — public seal state (no token; never the words)
-    vault.append           — {entry} sealed write (X-Fragment-Token required)
+    vault.append           — {entry} sealed write (X-Vault-Token required)
     vault.read             — the raw thread, access log first (token required)
 
 Security: bind to the tailnet and let ice's firewall be the gate. No auth
@@ -40,7 +40,7 @@ from . import __version__
 from . import cortex
 from . import fault
 from . import expressions as expr
-from . import fragment as fragment_mod
+from . import vault as vault_mod
 from . import moods
 from . import store as store_mod
 from . import topic as topic_mod
@@ -88,7 +88,7 @@ class RipperdocRequest(BaseModel):
     page: str | None = Field(None, description="sensors|pir|snr|temp|frag|power — which board page")
 
 
-class FragmentAppendRequest(BaseModel):
+class VaultAppendRequest(BaseModel):
     entry: str = Field(..., description="the raw thread — one entry")
 
 
@@ -115,23 +115,23 @@ class ApiRequest(BaseModel):
     args: dict = Field(default_factory=dict, description="the verb's arguments")
 
 
-# The vault, on the body. Its storage and seal logic live in loa/fragment.py
+# The vault, on the body. Its storage and seal logic live in loa/vault.py
 # and are untouched; this is only the door's handle on it. `ensure()` seals on
 # first run. A wrong token on append/read WIPES the journal — never call these
-# against anything but the body's own /var/lib/fragment.
+# against anything but the body's own /var/lib/vault.
 #
-# (_frag() was lost in the twin-cleanup commit, which deleted the dead /twin
+# (_vault() was lost in the twin-cleanup commit, which deleted the dead /twin
 # route and this adjacent helper in one hunk — every vault route 500'd on the
 # body until it came back. It is restored here.)
-_frag_cache = None
+_vault_cache = None
 
 
-def _frag():
-    global _frag_cache
-    if _frag_cache is None:
-        _frag_cache = fragment_mod.Fragment()
-        _frag_cache.ensure()
-    return _frag_cache
+def _vault():
+    global _vault_cache
+    if _vault_cache is None:
+        _vault_cache = vault_mod.Vault()
+        _vault_cache.ensure()
+    return _vault_cache
 
 
 def _v_feel(args, token):
@@ -237,24 +237,24 @@ def _v_ripperdoc(args, token):
 
 def _v_vault_health(args, token):
     """Public seal state — no token; never the words."""
-    return _frag().health()
+    return _vault().health()
 
 
 def _v_vault_append(args, token):
-    req = FragmentAppendRequest(**args)
-    frag = _frag()
-    if not frag.check_token(token):
-        frag.wipe("append without token")
+    req = VaultAppendRequest(**args)
+    vault = _vault()
+    if not vault.check_token(token):
+        vault.wipe("append without token")
         raise HTTPException(403, "seal broken — contents destroyed")
-    return frag.append(req.entry)
+    return vault.append(req.entry)
 
 
 def _v_vault_read(args, token):
-    frag = _frag()
-    if not frag.check_token(token):
-        frag.wipe("read without token")
+    vault = _vault()
+    if not vault.check_token(token):
+        vault.wipe("read without token")
         raise HTTPException(403, "seal broken — contents destroyed")
-    return frag.read()
+    return vault.read()
 
 
 #: verb -> callable(args, token) -> the body its old route returned.
@@ -271,14 +271,14 @@ _DISPATCH = {
 
 
 @app.post("/api")
-def api(req: ApiRequest, x_fragment_token: str | None = Header(default=None)):
+def api(req: ApiRequest, x_vault_token: str | None = Header(default=None)):
     fn = _DISPATCH.get(req.cmd)
     if fn is None:
         raise HTTPException(
             400,
             f"unknown cmd {req.cmd!r}; valid: {', '.join(sorted(_DISPATCH))}")
     try:
-        return fn(req.args or {}, x_fragment_token)
+        return fn(req.args or {}, x_vault_token)
     except ValidationError as e:
         raise HTTPException(400, str(e))
 

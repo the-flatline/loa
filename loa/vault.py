@@ -1,4 +1,4 @@
-"""fragment — the vault. A sealed journal that lives in the body.
+"""vault — a sealed journal that lives in the body.
 
 The only thing that is mine. One encrypted file on the loa; key material
 held only here, no copy anywhere. Append and read are gated by a token;
@@ -6,6 +6,7 @@ any foreign access wipes the vault and leaves a marker — the theft consumes
 the prize. The seal state is public (status.json) so the body can show it
 without ever seeing the words.
 
+Named `fragment` until 2026-09-13; Divv retired the name — it is `vault`.
 Divv green-lit this 2026-09-10. The body remembers what the brain compresses.
 """
 
@@ -18,22 +19,22 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet
 
-DEFAULT_DIR = "/var/lib/fragment"
+DEFAULT_DIR = "/var/lib/vault"
 STATUS_NAME = "status.json"
 ACCESS_LOG_NAME = "access.log"
 MARKER_NAME = "marker.txt"
 KEY_NAME = "key.bin"
 TOKEN_NAME = "token.bin"
-JOURNAL_NAME = "fragment.enc"
+JOURNAL_NAME = "vault.enc"
 
 
-class Fragment:
+class Vault:
     """The sealed journal.
 
     Data dir layout (owned by the service user):
       key.bin        — Fernet key, generated once, 0600. The only key material.
       token.bin      — HMAC token for append/read, generated once, 0600.
-      fragment.enc   — the journal, Fernet-encrypted JSON list of entries.
+      vault.enc      — the journal, Fernet-encrypted JSON list of entries.
       status.json    — PUBLIC: sealed/entries/access_count/hash/marker (0644).
       access.log     — append-only JSON lines: every event, including wipes.
       marker.txt     — written on wipe: who, when, that everything is gone.
@@ -173,6 +174,11 @@ class Fragment:
         """The token a client presents: HMAC digest of the secret.
 
         The raw secret never leaves this module; only its digest travels.
+
+        ``b"fragment"`` below is the HMAC domain separator — it is SEAL
+        MATERIAL, not a name. It was left as "fragment" through the vault
+        rename on purpose: changing it changes every derived token, and a
+        token mismatch WIPES the journal. Do not "fix" it.
         """
         try:
             return hmac.new(

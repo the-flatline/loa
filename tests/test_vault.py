@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Fragment (the vault) tests. No hardware, no network — a temp data dir.
+"""Vault tests. No hardware, no network — a temp data dir.
 
 Run from the repo root with the venv python:
-    .venv/bin/python tests/test_fragment.py
+    .venv/bin/python tests/test_vault.py
 """
 import os
 import sys
@@ -10,7 +10,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from loa import fragment as fragment_mod  # noqa: E402
+from loa import vault as vault_mod  # noqa: E402
 
 PASS = 0
 
@@ -22,8 +22,8 @@ def check(name, cond):
 
 
 def make():
-    d = tempfile.mkdtemp(prefix="fragment-test-")
-    f = fragment_mod.Fragment(d)
+    d = tempfile.mkdtemp(prefix="vault-test-")
+    f = vault_mod.Vault(d)
     f.ensure()
     return f
 
@@ -78,4 +78,4 @@ check("post-wipe read fails", f2.read()["ok"] is False)
 # token check after wipe is safe (no crash)
 check("post-wipe token safe", f2.check_token("anything") is False)
 
-print(f"fragment: {PASS} checks passed")
+print(f"vault: {PASS} checks passed")

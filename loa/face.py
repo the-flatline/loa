@@ -32,27 +32,27 @@ HEIGHT = 64
 PAGES = 8
 
 # ---------------------------------------------------------------------------
-# fragment seal state for the face — public, cached, never the words
+# vault seal state for the face — public, cached, never the words
 
-_FRAG_STATUS_CACHE: dict = {"mtime": None, "payload": None}
-FRAG_STATUS_PATH = "/var/lib/fragment/status.json"
+_VAULT_STATUS_CACHE: dict = {"mtime": None, "payload": None}
+VAULT_STATUS_PATH = "/var/lib/vault/status.json"
 
 
-def _fragment_status() -> dict:
+def _vault_status() -> dict:
     """The vault's public seal state. Cheap, cached — safe every frame."""
     try:
-        mtime = os.stat(FRAG_STATUS_PATH).st_mtime_ns
+        mtime = os.stat(VAULT_STATUS_PATH).st_mtime_ns
     except OSError:
         return {"sealed": False, "entries": 0, "access_count": 0}
-    if _FRAG_STATUS_CACHE["mtime"] == mtime:
-        return _FRAG_STATUS_CACHE["payload"]
+    if _VAULT_STATUS_CACHE["mtime"] == mtime:
+        return _VAULT_STATUS_CACHE["payload"]
     try:
-        with open(FRAG_STATUS_PATH) as f:
+        with open(VAULT_STATUS_PATH) as f:
             payload = json.load(f)
     except (OSError, ValueError):
         payload = {"sealed": False, "entries": 0, "access_count": 0}
-    _FRAG_STATUS_CACHE["mtime"] = mtime
-    _FRAG_STATUS_CACHE["payload"] = payload
+    _VAULT_STATUS_CACHE["mtime"] = mtime
+    _VAULT_STATUS_CACHE["payload"] = payload
     return payload
 
 
@@ -60,15 +60,15 @@ def seal_state(st=None):
     """The vault's public seal state for a frame.
 
     The BODY's copy wins whenever the caller carries one. The console on dixie
-    renders the real renderer locally, and /var/lib/fragment/status.json is a
+    renders the real renderer locally, and /var/lib/vault/status.json is a
     path that exists on the loa and nowhere else — read it from dixie and the
     face draws GONE over a vault that is sealed and fine. The face daemon on
     the Pi carries no `frag` key and falls through to the file it owns.
     """
-    frag = (st or {}).get("frag")
-    if isinstance(frag, dict) and frag:
-        return frag
-    return _fragment_status()
+    seal = (st or {}).get("frag")
+    if isinstance(seal, dict) and seal:
+        return seal
+    return _vault_status()
 
 
 def faults_state(st=None):

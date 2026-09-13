@@ -20,7 +20,7 @@ import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-from loa import cortex, cortexd, expressions as expr, face, fragment as fragment_mod
+from loa import cortex, cortexd, expressions as expr, face, vault as vault_mod
 from loa import moods
 
 #: Every path that used to be a door. None may answer again.
@@ -57,9 +57,9 @@ def client():
 def vault(tmp_path, monkeypatch):
     """A vault of our own. NEVER the live /var/lib/fragment — a wrong token
     there wipes the journal permanently, and a test must not be able to."""
-    f = fragment_mod.Fragment(str(tmp_path / "vault"))
+    f = vault_mod.Vault(str(tmp_path / "vault"))
     f.ensure()
-    monkeypatch.setattr(cortexd, "_frag_cache", f)
+    monkeypatch.setattr(cortexd, "_vault_cache", f)
     return f
 
 
@@ -218,12 +218,12 @@ def test_vault_health(client, vault):
 def test_vault_append_and_read(client, vault):
     tok = vault.presented_token()
     r = client.post("/api", json={"cmd": "vault.append", "args": {"entry": "hello"}},
-                    headers={"X-Fragment-Token": tok})
+                    headers={"X-Vault-Token": tok})
     assert r.status_code == 200, r.text
     assert r.json()["ok"] is True and r.json()["entries"] == 1
 
     r = client.post("/api", json={"cmd": "vault.read", "args": {}},
-                    headers={"X-Fragment-Token": tok})
+                    headers={"X-Vault-Token": tok})
     assert r.status_code == 200, r.text
     assert r.json()["ok"] is True
     assert r.json()["entries"][0]["entry"] == "hello"
