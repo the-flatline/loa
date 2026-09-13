@@ -1,6 +1,6 @@
 [Unit]
 Description=loa cortex — the body's state and the ONE publisher of the topics
-After=network.target loa-ring.service loa-oled.service loa-store-tunnel.service
+After=network.target loa-ring.service loa-panel.service loa-store-tunnel.service
 
 [Service]
 Type=simple

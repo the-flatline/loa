@@ -20,15 +20,21 @@ else
 fi
 
 echo "== installing services =="
-sudo cp deploy/loa-ring.service deploy/loa-oled.service deploy/loa-cortex.service \
+sudo cp deploy/loa-ring.service deploy/loa-cortex.service \
         deploy/loa-motion.service deploy/loa-sonar.service deploy/loa-weather.service \
         deploy/loa-fault.service deploy/loa-fault.timer /etc/systemd/system/
+# NO loa-oled.service: the face panel is the Rust binary now, installed and
+# enabled by scripts/deploy-panel.sh. Enabling both is two daemons on one SPI
+# bus, and the sweep calls that BUS CLASH for good reason.
 sudo systemctl daemon-reload
-sudo systemctl enable --now loa-ring loa-oled loa-cortex \
+sudo systemctl enable --now loa-ring loa-cortex \
                             loa-motion loa-sonar loa-weather \
                             loa-fault.timer
 
 echo "== retiring units that no longer exist =="
+# loa-oled is DISABLED but not deleted: the Python face daemon is the rollback
+# path, and deleting its unit would leave nothing to roll back to.
+sudo systemctl disable --now loa-oled 2>/dev/null || true
 # loa-record: the CORTEX writes records now (it is the only writer of the
 # store). loa-relay: it polled and wrote feed.json — the bridge this design
 # forbids. loa-sense: split into loa-motion / loa-sonar / loa-weather.

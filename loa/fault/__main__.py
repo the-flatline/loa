@@ -30,18 +30,21 @@ FAULTS_PATH = "/dev/shm/loa-faults.json"
 #: loa-record is gone: the CORTEX writes the records, because the cortex is the
 #: only writer of the store. A second process writing records would be a second
 #: writer, and two writers is two things that can disagree about what happened.
-UNITS = ("loa-cortex", "loa-oled", "loa-motion", "loa-sonar", "loa-weather",
+UNITS = ("loa-cortex", "loa-panel", "loa-motion", "loa-sonar", "loa-weather",
          "loa-ring")
 
 # Console scripts an unclean shutdown has zeroed before (empty file =>
 # Exec format error => crash-loop that looks like a dead device).
+# The FACE panel is not here any more: loa-panel is a static Rust binary in
+# /usr/local/bin, so it cannot be zeroed by a venv write and the venv-scoped
+# check below cannot see it. Its unit check covers it being missing.
 SCRIPTS_DIR = "/home/flatline/venv/bin"
-SCRIPTS = ("loa-cortex", "loa-oled", "loa-ring", "loa-motion", "loa-sonar",
+SCRIPTS = ("loa-cortex", "loa-ring", "loa-motion", "loa-sonar",
            "loa-weather", "ripperdoc")
 
 # Who should hold which SPI bus. Two writers on one bus is the classic
 # ghost-in-the-panel fault.
-BUS_OWNERS = {"/dev/spidev0.0": "loa-oled", "/dev/spidev1.0": "loa-ring"}
+BUS_OWNERS = {"/dev/spidev0.0": "loa-panel", "/dev/spidev1.0": "loa-ring"}
 BUS_LABEL = {"/dev/spidev0.0": "FACE", "/dev/spidev1.0": "RING"}
 
 DISK_WARN_PCT = 85
