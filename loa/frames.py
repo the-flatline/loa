@@ -23,12 +23,14 @@ import time
 
 from . import animations as anim
 from . import face
+from . import geom
 from .render import DitheredFrame
 
-#: The two invariants. The wire and the panel agree because these are the only
-#: sizes either side produces.
-FACE_BYTES = face.WIDTH * face.PAGES       # 1024: 128x64, 1bpp, page-major
-RING_BYTES = anim.LED_COUNT * 3            # 72: 24 px RGB
+#: The two invariants, imported from `geom` rather than recomputed here: the
+#: wire, the panel and the renderer all read the SAME number, so a renderer and
+#: a display cannot drift apart by arithmetic done twice.
+FACE_BYTES = geom.FACE_BYTES               # 1024: 128x64, 1bpp, page-major
+RING_BYTES = geom.RING_BYTES               # 72: 24 px RGB
 
 #: The animation clock. Rendering runs at the topic tick (2Hz) now, so this is
 #: only used to sample the time-based sequences.

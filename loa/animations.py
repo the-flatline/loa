@@ -11,7 +11,11 @@ changing the feel. FPS is a parameter, not an assumption.
 import math
 import random
 
-LED_COUNT = 24
+from . import geom
+
+#: The ring's LED count. Defined in `geom` (the frame geometry a display may
+#: import) and re-exported here as the name every animation already uses.
+LED_COUNT = geom.RING_LEDS
 
 ALARM_FLAG = "/tmp/loa_alarm"
 BUSY_FLAG  = "/tmp/loa_busy"

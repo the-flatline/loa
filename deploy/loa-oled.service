@@ -1,5 +1,5 @@
 [Unit]
-Description=loa face daemon — SH1106 OLED over SPI0, state-file driven
+Description=loa face daemon — SH1106 OLED over SPI0; blits the ripperdoc topic
 After=network.target
 
 [Service]
