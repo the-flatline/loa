@@ -436,6 +436,7 @@ def _build(topic, st):
                          snr_on=bool(st["snr_on"]), ring_state=st["ring_state"],
                          oled_mode=st["oled_mode"],
                          oled_dim=bool(st["oled_dim"]),
+                         oled_flip=bool(st["oled_flip"]),
                          ripperdoc=bool(st["ripperdoc"]),
                          condition=st["condition"], ts=time.time())
         if st["oled_text"] is not None:

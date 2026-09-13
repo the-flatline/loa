@@ -190,3 +190,41 @@ def test_events_stay_scalars():
     ev = pb.Event(ts=1.0, kind="frame")
     ev.detail["face_sha"] = "abc123"
     assert set(pb.Event.DESCRIPTOR.fields_by_name) == {"ts", "kind", "detail"}
+
+
+def test_the_builder_actually_sets_every_mapped_field():
+    """The map is the promise; the builder is the delivery.
+
+    oled_flip was added to TOPIC_STATE_MAP and the publisher kept its own
+    explicit field list, so the setting was stored, advertised, and never sent —
+    the glass stayed wrong and nothing anywhere looked broken. A map entry the
+    builder does not honour must fail here, not on the body.
+    """
+    from loa import cortex, cortexd, store
+    from loa import topic as t
+
+    cortex.boot(store.MemoryStore())
+    st = cortex.get_state()
+    # The probe value has to match the FIELD's type, not the state's: several
+    # are None until something reads them, and a str into a double is a
+    # TypeError, not a test failure.
+    probe = {}
+    for name, mapping in t.TOPIC_STATE_MAP.items():
+        msg = cortexd._build(name, st)
+        for field, key in mapping.items():
+            spec = msg.DESCRIPTOR.fields_by_name.get(field)
+            if spec is None:
+                continue
+            numbers = (spec.TYPE_DOUBLE, spec.TYPE_FLOAT, spec.TYPE_INT32,
+                       spec.TYPE_INT64, spec.TYPE_UINT32, spec.TYPE_UINT64)
+            probe[key] = (True if spec.type == spec.TYPE_BOOL
+                          else 1.5 if spec.type in numbers else "x")
+    cortex.set_state(probe)
+    st = cortex.get_state()
+    missing = []
+    for name, mapping in t.TOPIC_STATE_MAP.items():
+        msg = cortexd._build(name, st)
+        for field in mapping:
+            if hasattr(msg, "HasField") and not msg.HasField(field):
+                missing.append(f"{name}.{field}")
+    assert not missing, f"mapped but never published: {missing}"
