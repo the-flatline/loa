@@ -184,8 +184,12 @@ def test_no_daemon_or_driver_touches_the_cortex():
     cortex for numbers the driver had itself published), which is why the
     DRIVERS are checked here too.
     """
+    # oled and ring are NOT in this list any more: those daemons are Rust and
+    # have no Python file to parse. Their equivalent guarantee is structural —
+    # a separate binary that speaks the topic cannot call into this interpreter
+    # at all, which is a stronger version of the same rule.
     paths = [ROOT / name / "__main__.py"
-             for name in ("motion", "sonar", "weather", "oled", "ring", "fault")]
+             for name in ("motion", "sonar", "weather", "fault")]
     paths += [ROOT / folder / f"{mod}.py" for folder, mod, _ in DRIVERS]
     for path in paths:
         src = path.read_text()

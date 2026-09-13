@@ -94,7 +94,7 @@ def test_a_restarted_cortex_publishes_a_full_face_on_the_first_tick(monkeypatch)
 #: the brain's picture in `cortex/`, the LEDs' voice/encoder in `ring/`, and
 #: the two daemons' `__main__`.
 RENDERERS = ("cortex.face", "cortex.frames", "cortex.ring", "cortex.amiga",
-             "ring.animations", "ring.encode", "oled.__main__", "ring.__main__")
+             "ring.animations", "ring.encode")
 
 
 def _src(root, name):

@@ -162,20 +162,21 @@ def test_a_verb_with_no_caller_does_not_exist(client):
 
 
 def test_the_console_issues_only_verbs_that_exist():
-    """The verb list is exactly what the callers issue. Scanning the console's
-    own `_post(...)` calls is the closest thing to "the callers" the repo holds:
-    a verb it posts that the door does not have is a 400 at the bench."""
-    import ast
+    """The verb list is exactly what the callers issue — and the caller is RUST
+    now, so this reads the Rust console's `post(...)` calls and checks each verb
+    against the door's dispatch.
+
+    Cross-language on purpose: the console and the door are different programs in
+    different languages, and a verb the console posts that the door does not have
+    is a 400 at the bench with nobody watching. A source scan is the closest
+    thing to "the callers" the repo holds, and it is cheap enough to stay honest.
+    """
     import pathlib
+    import re
 
     src = (pathlib.Path(__file__).resolve().parent.parent
-           / "loa" / "ripperdoc" / "__init__.py").read_text()
-    issued = set()
-    for node in ast.walk(ast.parse(src)):
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                and node.func.id == "_post" and node.args
-                and isinstance(node.args[0], ast.Constant)):
-            issued.add(node.args[0].value)
+           / "rust" / "ripperdoc" / "src" / "main.rs").read_text()
+    issued = set(re.findall(r'post\(\s*"([a-z.]+)"', src))
     assert issued, "the console issues no verbs — the scan is broken, not the app"
     assert issued <= set(cortexd._DISPATCH), (
         "the console issues verbs the door does not have: %s"

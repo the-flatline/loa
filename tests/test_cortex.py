@@ -214,16 +214,11 @@ def test_the_orientation_survives_a_round_trip():
     assert cortex.get_state()["oled_flip"] is False
 
 
-def test_the_panel_is_told_the_orientation_on_the_panel():
-    """Two commands to the SH1106, not a rotated pixel: the bench display
-    records what it was told."""
-    from loa.oled import driver
-    d = driver.NullDisplay()
-    assert getattr(d, "_flip", None) is None
-    d.set_flip(False)
-    assert d._flip is False
-    d.set_flip(True)
-    assert d._flip is True
+# The panel's orientation test is gone with the Python panel: flipping is two
+# commands to the SH1106 and the code that sends them is Rust now
+# (rust/loa-panel/src/panel.rs, set_flip). Its coverage is the wire-format tests
+# in rust/loa-ring plus the on-glass measurements, not a mock of a driver that no
+# longer exists.
 
 
 # -- the trend is computed, not stored as a verdict ------------------------ #

@@ -31,15 +31,20 @@ dev = [
 ]
 
 [project.scripts]
-# Each daemon's entry lives in its package's `__main__`, so `python -m loa.oled`
-# and the installed `loa-oled` run the SAME function.
-loa-ring = "loa.ring.__main__:main"
+# Each daemon's entry lives in its package's `__main__`, so `python -m loa.motion`
+# and the installed `loa-motion` run the SAME function.
+#
+# NO loa-oled AND NO loa-ring: those two daemons are Rust binaries now
+# (rust/loa-panel, rust/loa-ring), installed to /usr/local/bin by
+# scripts/deploy-panel.sh and scripts/deploy-ring.sh. Console scripts for them
+# would be a second way to start a second implementation of the same display.
 loa-cortex = "loa.cortex.__main__:main"
-loa-oled = "loa.oled.__main__:main"
 loa-motion = "loa.motion.__main__:main"
 loa-sonar = "loa.sonar.__main__:main"
 loa-weather = "loa.weather.__main__:main"
-ripperdoc = "loa.ripperdoc:main"
+# NO ripperdoc: the console is the Rust binary at rust/ripperdoc, which the
+# `ripperdoc` shim on PATH runs. A Python console script for it would be a second
+# console over the same feed, drifting from the first.
 loa-fault = "loa.fault.__main__:main"
 loa-topic-tail = "loa.topic:main"
 

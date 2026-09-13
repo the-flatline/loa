@@ -126,7 +126,7 @@ fn run(
                     KeyCode::Char('6') => post("ripperdoc", "{\"page\":\"power\"}".into()),
                     KeyCode::Char('7') => post("ripperdoc", "{\"page\":\"fault\"}".into()),
                     KeyCode::Char('f') => post("display", format!("{{\"flip\":{}}}", !v.oled_flip)),
-                    KeyCode::Char('m') => post("feel", "{\"feeling\":\"pleased\"}".into()),
+                    KeyCode::Char('m') => post("feel", "{\"next\":true}".into()),
                     _ => {}
                 }
             }

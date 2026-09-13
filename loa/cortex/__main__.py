@@ -70,7 +70,14 @@ app = FastAPI(
 # models
 
 class FeelRequest(BaseModel):
-    feeling: str = Field(..., description="one of the MOODS vocabulary")
+    #: `feeling` OR `next`, not both. `next` is for a console that has no copy of
+    #: the vocabulary: it says "advance" and the CORTEX decides what comes next,
+    #: because the cortex is the one that knows the vocabulary and the current
+    #: mood. A console holding its own mood list would be a second copy of the
+    #: vocabulary, drifting from the first (the Rust console had exactly this
+    #: gap: its 'm' key could only ever send one hardcoded mood).
+    feeling: str | None = Field(None, description="one of the MOODS vocabulary")
+    next: bool = Field(False, description="advance to the next mood in the vocabulary")
     note: str | None = None
 
 
@@ -138,6 +145,13 @@ def _vault():
 
 def _v_feel(args, token):
     req = FeelRequest(**args)
+    if req.next:
+        names = list(moods.MOODS)
+        here = cortex.get_state().get("mood")
+        # Unknown or missing current mood: start at the top rather than guessing
+        # an index for a name that is not in the vocabulary.
+        i = names.index(here) + 1 if here in names else 0
+        req.feeling = names[i % len(names)]
     if req.feeling not in moods.MOODS:
         raise HTTPException(
             400, f"feeling must be one of {sorted(moods.MOODS)}")

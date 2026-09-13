@@ -32,13 +32,11 @@ sudo systemctl enable --now loa-ring loa-cortex \
                             loa-fault.timer
 
 echo "== retiring units that no longer exist =="
-# loa-oled is DISABLED but not deleted: the Python face daemon is the rollback
-# path, and deleting its unit would leave nothing to roll back to.
-sudo systemctl disable --now loa-oled 2>/dev/null || true
-# loa-record: the CORTEX writes records now (it is the only writer of the
-# store). loa-relay: it polled and wrote feed.json — the bridge this design
-# forbids. loa-sense: split into loa-motion / loa-sonar / loa-weather.
-for dead in loa-presence loa-sense loa-api loa-faults loa-ctl loa-record loa-relay; do
+# loa-oled: the Python face daemon. Rust owns the glass now (loa-panel), so the
+# unit is deleted rather than disabled — a disabled unit is a second way to
+# start a second implementation of the same display, one `systemctl enable`
+# away. The rollback path for it is git history, not /etc/systemd/system.
+for dead in loa-oled loa-presence loa-sense loa-api loa-faults loa-ctl loa-record loa-relay; do
   sudo systemctl disable --now "$dead" 2>/dev/null || true
   sudo rm -f "/etc/systemd/system/$dead.service"
 done

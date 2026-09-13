@@ -11,26 +11,25 @@ ONE DIRECTORY PER SUBSYSTEM, so the tree says what each file is:
     pages: state -> 1024 bytes), ``ring`` (the ring's frame builder), ``amiga``
     / ``topaz`` (the face's art and font), ``moods`` / ``expressions`` (the
     vocabulary), and ``__main__`` (the /api door, the tick, ingest).
-  * ``oled/`` — THE GLASS, a limb: ``__main__`` (the blit loop) and ``driver``
-    (the SH1106).
-  * ``ring/`` — THE LEDS, a limb: ``__main__`` (the blit loop), ``neopixel``
-    (the hardware), ``encode`` (code space + dither), ``animations`` (the
-    voice).
+  * ``ring/`` — the LED's VOICE, in the brain: ``encode`` (code space + dither)
+    and ``animations`` (the curves the cortex draws). The BLIT LOOP and the
+    WS2812 hardware are Rust now (``rust/loa-ring``); what is left here is the
+    renderer, which the cortex owns.
   * ``motion/ sonar/ weather/ fault/`` — one process per sense, and the whole
     sense in the one folder: ``__main__`` (its daemon) and its DRIVER — ``pir``
     in motion, ``ultrasonic`` in sonar, ``dht`` + ``baro`` in weather.
   * ``vault/`` — the journal. ``ripperdoc/`` — the console (the client).
 
+THE DISPLAYS ARE NOT HERE ANY MORE. ``oled/`` and ``ring/__main__`` +
+``ring/neopixel`` were the Python displays — the blit loop and the SH1106 and
+WS2812 drivers — and Rust replaced them (``rust/loa-panel``, ``rust/loa-ring``).
+Deleted rather than left as a second way to drive the same glass: a display that
+exists in two languages is a display whose two copies drift, which is exactly
+what happened to the wire framing on 2026-09-14.
+
 LAZY ON PURPOSE. `import loa` used to drag the whole body in — the renderers,
-the cortex, the HTTP door — into EVERY process, which meant a display daemon
-that ran `from loa import oled` had physically loaded the renderer it is
-forbidden to use. Names resolve on first access now (PEP 562), so a daemon
-imports its own layer and nothing else: `loa-oled` reaches oled/driver, geom and
-topic and `loa-ring` reaches ring/neopixel, geom and topic, and neither can touch
-loa/cortex/face.py or the state derivation beside it.
-tests/test_display_boundary.py asserts that on the real import graph, in a
-subprocess, because an eager `from . import cortex` here would make the boundary
-a fiction while every module-level test still passed.
+the cortex, the HTTP door — into EVERY process. Names resolve on first access
+now (PEP 562).
 """
 import importlib
 
@@ -40,18 +39,14 @@ __version__ = "0.9.0"
 #: so `from loa import cortex` and `loa.cortex` both work without importing
 #: anything until one of them is asked for.
 _SUBMODULES = (
-    "config", "cortex", "fault", "geom", "motion", "oled", "ring", "ripperdoc",
+    "config", "cortex", "fault", "geom", "motion", "ring", "ripperdoc",
     "sense", "sonar", "topic", "vault", "weather",
 )
 
-__all__ = ["Ring", "__version__", *_SUBMODULES]
+__all__ = ["__version__", *_SUBMODULES]
 
 
 def __getattr__(name):
-    if name == "Ring":
-        from .ring.neopixel import Ring
-        globals()["Ring"] = Ring
-        return Ring
     if name in _SUBMODULES:
         mod = importlib.import_module("." + name, __name__)
         globals()[name] = mod
