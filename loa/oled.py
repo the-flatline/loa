@@ -117,7 +117,7 @@ def _state():
     st.setdefault("page", "sensors")
     st.setdefault("mood", "calm")
     st.setdefault("ring_state", "home")
-    st.setdefault("oled_flip", True)
+    st.setdefault("oled_flip", face.DEFAULT_FLIP)
     # A silent feed is REPORTED, never quietly rendered as a healthy body: if
     # nothing has arrived on the ripperdoc topic, the face says so.
     age = None if m is None else m.age("ripperdoc")
@@ -158,7 +158,7 @@ def render_loop(display=None, max_frames=None):
             if _body_condition() in ("hurts", "mute"):
                 if st["oled_mode"] != "ripperdoc" or _ring_is_dark():
                     st = {**st, "oled_mode": "ripperdoc", "page": "fault"}
-            flip = bool(st.get("oled_flip", True))
+            flip = bool(st.get("oled_flip", face.DEFAULT_FLIP))
             if flip != _FLIP["on"]:
                 # The face's orientation, applied on the PANEL: two commands,
                 # nothing per frame. Persisted, so an upside-down mount survives

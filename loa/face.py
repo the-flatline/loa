@@ -501,6 +501,14 @@ class NullDisplay:
         pass
 
 
+#: How THIS panel is mounted. Measured, not guessed: with all four combinations
+#: of segment remap and COM scan driven on the real glass (2026-09-13), A0/C0 is
+#: the one that reads upright and not mirrored. So no compensation is needed —
+#: the mount matches how the renderers draw — and `oled_flip = false` is the
+#: setting that says so.
+DEFAULT_FLIP = False
+
+
 class SH1106:
     """SH1106 1.3" 128x64 over SPI0. Proven init sequence from oled_canon.
 
@@ -549,10 +557,14 @@ class SH1106:
                   0x81, 0xCF, 0xD9, 0xF1, 0xDB, 0x40, 0xA4, 0xA6,
                   0x2E, 0xAF):
             self._cmd(c)
-        # The orientation is NOT part of the init any more: it is a setting,
-        # applied through set_flip() so there is one place that decides it.
+        # The orientation is NOT part of the init anymore: it is a setting,
+        # applied through set_flip() so one place decides it. It is applied here
+        # with DEFAULT_FLIP so the panel is correct from power-on rather than
+        # from whenever the feed happens to arrive — measured on the body
+        # 2026-09-13: powering up at A1/C8 and correcting on the first message
+        # meant the glass was wrong for as long as the feed took to start.
         self._flip = None
-        self.set_flip(True)
+        self.set_flip(DEFAULT_FLIP)
 
     def show(self, buf, offset=None):
         off = self.offset if offset is None else offset
