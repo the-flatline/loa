@@ -1,0 +1,8 @@
+[package]
+name = "loa-common"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "what loa's modules must agree about and nothing else: geometry and the condition vocabulary"
+
+[dependencies]
