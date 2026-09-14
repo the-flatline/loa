@@ -8,4 +8,5 @@
 //! before the one above it exists.
 
 pub mod moods;
+pub mod verbs;
 pub mod state;
