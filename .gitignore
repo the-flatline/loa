@@ -8,4 +8,4 @@ venv/
 # build directory is one careless `git add -A` away from being committed.
 build/
 dist/
-rust/target/
+target/

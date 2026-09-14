@@ -1,6 +1,7 @@
-//! Codegen from the ONE schema. The .proto in the tree is the contract; nothing
-//! here hand-writes a message, so a field added to loa.proto reaches both
-//! languages or the build fails.
+//! Codegen from the ONE schema. The .proto is the contract; nothing here
+//! hand-writes a message, so a field added to proto/loa.proto reaches every
+//! Rust crate or the build fails.
+
 fn main() {
     let proto = "../../proto/loa.proto";
     println!("cargo:rerun-if-changed={proto}");

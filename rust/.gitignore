@@ -1,3 +1,0 @@
-rust/
-# Cargo's own build output: 256 MB of objects, not part of the source tree.
-target/

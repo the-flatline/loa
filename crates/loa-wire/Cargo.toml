@@ -1,0 +1,22 @@
+[package]
+name = "loa-wire"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "loa's wire contract: the protobuf bindings and the four socket roles"
+
+[dependencies]
+prost = "0.13"
+# REAL libzmq, not a second ZMTP implementation. The publisher leg has lived in
+# pyzmq, whose libzmq reassembles ZMTP chunks before anyone sees a message; a
+# reimplemented framing layer is a second set of rules, and two rulesets is how
+# a ~1KB frame intermittently arrived as three frames instead of two (2026-09-13).
+# Same stack on both ends, one set of rules. zmq-sys builds libzmq from source
+# when the system lacks one, so the binary stays a single static file.
+zmq = "0.10"
+
+[build-dependencies]
+prost-build = "0.13"
+
+[dev-dependencies]
+zmq = "0.10"

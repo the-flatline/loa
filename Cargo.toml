@@ -1,0 +1,26 @@
+# The loa, in Rust. One crate per job, named for what it does:
+#   loa-wire     the contract: protobuf bindings + the four socket roles
+#   loa-oled     the OLED daemon — owns the glass, renders from state
+#   loa-ring     the ring daemon — owns the strip, renders from state
+#   loa-cortex   the brain — the only thing that publishes topics
+#   loa-motion loa-sonar loa-weather   sensor daemons
+#   ripperdoc    the bench console
+# Members join as each one starts existing: a workspace that names a crate
+# that is not there does not build.
+[workspace]
+members = ["crates/loa-wire"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[profile.release]
+# The point of this layer is frames: keep the loop tight. Unwind stays —
+# a daemon that aborts on a bad message stops driving the glass dead;
+# errors must travel, not take the process down.
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "unwind"
