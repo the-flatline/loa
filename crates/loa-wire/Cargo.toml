@@ -14,9 +14,16 @@ prost = "0.13"
 # Same stack on both ends, one set of rules. zmq-sys builds libzmq from source
 # when the system lacks one, so the binary stays a single static file.
 zmq = "0.10"
+tokio = { version = "1", optional = true, features = ["net", "rt", "time"] }
+
+[features]
+# The async face: tokio drives libzmq's readiness FD. Same libzmq underneath
+# either way — this changes who waits, not what the wire is.
+async = ["dep:tokio"]
 
 [build-dependencies]
 prost-build = "0.13"
 
 [dev-dependencies]
 zmq = "0.10"
+tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "time"] }
