@@ -1,0 +1,37 @@
+[package]
+name = "loa-cortex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "the coordinator: holds state, routes commands, relays frames, owns the topics"
+
+# The cortex's own modules; the binary target appears with main.rs, and a
+# workspace that names a file that does not exist does not build.
+
+[dependencies]
+loa-wire = { path = "../loa-wire", features = ["async"] }
+loa-common = { path = "../loa-common" }
+tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "time", "sync", "signal"] }
+zmq = "0.10"
+prost = "0.13"
+serde_json = "1"
+# The store's JSONB round-trips through the same Value type the door uses.
+postgres = { version = "0.19", features = ["with-serde_json-1"] }
+# The vault: journal is one Fernet token (AES-128-CBC + HMAC-SHA256, the
+# format is public and small), the seal is HMAC-SHA256. Pure-Rust crates
+# only: no OpenSSL, so the aarch64 binary stays a single static file.
+# The bytes on disk are the contract — a live encrypted journal and an
+# already-handed-out token, with no backup of either. Test vectors first.
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+zeroize = "1"
+# One blocking HTTP thread for the door. Same posture as everything here:
+# libzmq owns the feed, a real crate owns HTTP. No hand-rolled parsers.
+tiny_http = "0.12"
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
