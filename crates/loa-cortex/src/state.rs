@@ -192,9 +192,9 @@ impl Cortex {
                     }
                 }
                 // `trend` and `series` on an inbound Weather are ignored:
-                // the trend is DERIVED from the cortex's own 90 s window at
-                // build time. A daemon that measured a chip has no business
-                // computing what three measurements mean.
+                // the trend is DERIVED from the cortex's own sample window.
+                // A daemon that measured a chip has no business computing
+                // what three measurements mean.
             }
             Some(B::Fault(f)) => {
                 self.st.faults = f
@@ -224,8 +224,8 @@ impl Cortex {
         }
     }
 
-    /// The feed-side trend: over the 90 s window, last minus first against a
-    /// 0.5 hPa deadband; plus the 6 oldest-first points for the sparkline.
+    /// Record a pressure sample into the trend window. Called from merge the
+    /// instant a reading carrying pressure arrives — news in, news out.
     pub fn push_baro(&mut self, ts: f64, hpa: f64) {
         self.baro.push_back((ts, hpa));
         while let Some(&(first, _)) = self.baro.front() {

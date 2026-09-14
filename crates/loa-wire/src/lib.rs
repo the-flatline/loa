@@ -39,13 +39,30 @@ use prost::Message as _;
 /// plausible rubbish. This schema is v10: state down, frames up, news-only.
 pub const SCHEMA_VERSION: u32 = 10;
 
-/// Every topic the cortex publishes to CONSUMERS. Matches the oneof field
-/// names in the proto — that is what lets `encode` and `decode` stay generic.
-/// `init` is here because it IS a topic a daemon is interested in; it is
+/// Every topic the cortex publishes. Matches the oneof field names in the
+/// proto — that is what lets `encode` and `decode` stay generic. `init` is
 /// control, never state, and nothing here is ever published on a clock.
-pub const TOPICS: [&str; 9] = [
-    "ripperdoc", "ring", "pir", "sonar", "weather", "power", "fault", "event", "init",
+///
+/// `state` is the device leg: the presentation fields, published for the
+/// glass daemons to receive. Its payload is a Ripperdoc with no face bytes
+/// in it (see ALIASES) — one shape for the state of the displays, not two
+/// messages with eleven identical fields that drift.
+pub const TOPICS: [&str; 10] = [
+    "state", "ripperdoc", "ring", "pir", "sonar", "weather", "power", "fault",
+    "event", "init",
 ];
+
+/// Topics whose payload name is not their own. Exactly one row: the state leg
+/// carries a face-less Ripperdoc, because the fields ARE the state and a twin
+/// message would be a second implementation of one contract. The relay is the
+/// other direction's exception and is not a consumer topic, so it lives in
+/// ROUTES, not here.
+pub const ALIASES: [(&str, &str); 1] = [("state", "ripperdoc")];
+
+/// The type check for a (topic, body) pair: same name, or a declared alias.
+pub fn body_allowed(topic: &str, body: &str) -> bool {
+    topic == body || ALIASES.iter().any(|(t, b)| *t == topic && *b == body)
+}
 
 /// The relay: inbound topic -> consumer topic. A device pushes a frame under
 /// its OWN name so the source is legible in the message itself; the cortex
@@ -156,7 +173,7 @@ pub fn encode(topic: &str, env: &pb::Envelope) -> Result<[Vec<u8>; 2]> {
         return Err(Error::SchemaMismatch(env.schema_version));
     }
     let body = body_name(env).ok_or(Error::NoBody)?;
-    if body != topic {
+    if !body_allowed(topic, &body) {
         return Err(Error::TopicMismatch {
             topic: topic.into(),
             body: body.into(),
@@ -195,7 +212,7 @@ pub fn decode(parts: [Vec<u8>; 2]) -> Result<Msg> {
         return Err(Error::SchemaMismatch(env.schema_version));
     }
     let body = body_name(&env).ok_or(Error::NoBody)?;
-    if body != topic {
+    if !body_allowed(&topic, &body) {
         return Err(Error::TopicMismatch { topic, body: body.into() });
     }
     Ok(Msg { topic, env })

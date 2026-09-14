@@ -13,8 +13,15 @@
 //                 tiny things a viewer needs to frame it. NOT the data behind
 //                 the screen — if a number is drawn on the glass it arrives as
 //                 glass. Stateless viewer: hold the last frame, draw it.
+//     state       the same presentation fields, published DOWN to the glass
+//                 daemons, with no face in them. The devices receive state;
+//                 they publish frames. A declared alias lives in loa-wire's
+//                 ALIASES: the payload is a face-less Ripperdoc, because a
+//                 second message with the same eleven fields is two contracts
+//                 that drift. The devices never subscribe to `ripperdoc` —
+//                 that would be an echo of their own output.
 //     ring        the ring's pixels, its own interest
-//     pir sonar baro weather   one topic per sensor
+//     pir sonar weather   one topic per sensor; the air is one interest
 //     power       the chassis: PMIC rails, as read on the body
 //     fault       what hurts, right now
 //     event       something happened — a record

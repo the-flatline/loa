@@ -121,3 +121,39 @@ fn push_pull_round_trips_over_inproc() {
     assert_eq!(topic, b"oled");
     assert_eq!(body, face_msg().encode_to_vec());
 }
+
+#[test]
+fn the_state_leg_carries_a_faceless_ripperdoc() {
+    // "state" is the down-leg topic: presentation fields to the devices, and
+    // its payload is a face-less Ripperdoc. The alias is declared, so the
+    // pair passes; an undeclared pair still fails.
+    let rd = pb::Ripperdoc {
+        page: Some("sensors".into()),
+        mood: Some("calm".into()),
+        // face: None — a state message has no pixels. That is the whole
+        // difference between the down leg and the up leg.
+        ..Default::default()
+    };
+    let env = envelope(pb::envelope::Body::Ripperdoc(rd));
+    let parts = encode("state", &env).expect("the alias must be declared");
+    let msg = decode(parts).expect("decode");
+    assert_eq!(msg.topic, "state");
+    match msg.env.body {
+        Some(pb::envelope::Body::Ripperdoc(rd)) => assert!(rd.face.is_none()),
+        other => panic!("state leg must carry a Ripperdoc, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_alias_is_only_for_its_own_topic() {
+    // state<->ripperdoc is the declared alias; state<->ring is not a thing.
+    let env = envelope(pb::envelope::Body::Ring(pb::Ring {
+        ring: Some(vec![0u8; 72]),
+        ..Default::default()
+    }));
+    let e = encode("state", &env).unwrap_err();
+    assert!(matches!(e, Error::TopicMismatch { .. }), "{e}");
+    // and the consumer topic never aliases: "ripperdoc" carrying a Ring dies.
+    let e = encode("ripperdoc", &env).unwrap_err();
+    assert!(matches!(e, Error::TopicMismatch { .. }), "{e}");
+}
