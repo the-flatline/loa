@@ -7,6 +7,7 @@
 //! to the sockets, then main. Each layer is tested against the layer below
 //! before the one above it exists.
 
+pub mod build;
 pub mod moods;
 pub mod verbs;
 pub mod state;
