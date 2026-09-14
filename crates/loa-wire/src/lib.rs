@@ -36,14 +36,13 @@ use prost::Message as _;
 
 /// Bump on ANY change to proto/loa.proto. Both legs check it, so a body and a
 /// console that disagree fail on arrival instead of misreading fields into
-/// plausible rubbish. v9 folded Baro into Weather; v10 is state-down/frames-up
-/// with a relayed topic frame.
+/// plausible rubbish. This schema is v10: state down, frames up, news-only.
 pub const SCHEMA_VERSION: u32 = 10;
 
 /// Every topic the cortex publishes to CONSUMERS. Matches the oneof field
 /// names in the proto — that is what lets `encode` and `decode` stay generic.
 /// `init` is here because it IS a topic a daemon is interested in; it is
-/// simply never ticked (a control message is not a state).
+/// control, never state, and nothing here is ever published on a clock.
 pub const TOPICS: [&str; 9] = [
     "ripperdoc", "ring", "pir", "sonar", "weather", "power", "fault", "event", "init",
 ];
@@ -68,11 +67,15 @@ pub const FEED_PORT: u16 = 5556;
 /// outside the chassis has any business pushing into the brain.
 pub const INBOUND_PORT: u16 = 5555;
 
-/// 2Hz: every consumer STATE topic goes out this often, changed or not. This
-/// is the state tick. Frame relay is NOT on it — a relayed frame leaves the
-/// instant it arrives, and the device is paced by its own render loop, never
-/// by a sleep in this crate.
-pub const TICK_S: f64 = 0.5;
+// PUBLISHING MODEL: news. A message rides the wire the instant it becomes
+// true — a frame the moment it's rendered, a reading the moment it's taken,
+// a command's effect the moment state moves. Every message is full-shape; a
+// consumer never merges. A sensor's sampling rate (a DHT reads at 1 Hz
+// whether you like it or not) is hardware's clock and lives INSIDE the
+// daemon; what the wire carries is the news, at its own rate. State lives in
+// the cortex's RAM, so a late joiner gets the truth from `init` and news
+// thereafter. JOIN_GRACE_S exists because PUB/SUB slow joiners are physics,
+// not scheduling.
 
 /// Long enough for a SUB to establish its subscription before the first
 /// publish; PUB/SUB drops to a slow joiner.
