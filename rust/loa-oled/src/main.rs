@@ -15,7 +15,7 @@
 use std::time::{Duration, Instant};
 
 use loa_topic::{feed_endpoints, Subscriber};
-use loa_oled::oled::{self, Panel};
+use loa_oled::oled::{self, Oled};
 
 /// How long a recv may park before the loop notices nothing is arriving. Short,
 /// because a parked consumer cannot tell a quiet feed from a dead body.
@@ -62,7 +62,7 @@ fn parse_args() -> Args {
 
 fn main() {
     let args = parse_args();
-    let mut panel = match Panel::open(&args.spi, args.hz, args.chip) {
+    let mut panel = match Oled::open(&args.spi, args.hz, args.chip) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("loa-oled: no panel: {e}");
@@ -130,7 +130,7 @@ fn main() {
             }
             if want_dim != dim {
                 dim = want_dim;
-                let _ = panel.set_contrast(if dim { panel::DIM } else { panel::BRIGHT });
+                let _ = panel.set_contrast(if dim { oled::DIM } else { oled::BRIGHT });
             }
             if face == last_buf.as_slice() {
                 repeated += 1;            // identical bytes: nothing to draw
