@@ -216,7 +216,7 @@ def test_the_orientation_survives_a_round_trip():
 
 # The panel's orientation test is gone with the Python panel: flipping is two
 # commands to the SH1106 and the code that sends them is Rust now
-# (rust/loa-panel/src/panel.rs, set_flip). Its coverage is the wire-format tests
+# (rust/loa-oled/src/oled.rs, set_flip). Its coverage is the wire-format tests
 # in rust/loa-ring plus the on-glass measurements, not a mock of a driver that no
 # longer exists.
 

@@ -3,7 +3,7 @@
 #
 # WHY THIS EXISTS. Measured 2026-09-13, on the body and on dixie:
 #
-#   * the panel write path was 49.0 fps because DC was toggled by a spawned
+#   * the OLED write path was 49.0 fps because DC was toggled by a spawned
 #     `pinctrl` process, 16 per frame at 1.40 ms each. Holding the line open
 #     took the same path to 371.3 fps against a 472.2 fps wire.
 #   * the console could not exceed ~30 fps, and Textual was the wall: 21.6 ms
@@ -29,7 +29,7 @@
     Cargo.toml          the workspace
     .cargo/config.toml  the aarch64 linker: build on dixie, install to loa
     loa-topic/          the wire — protobuf bindings + subscriber (SHARED)
-    loa-panel/          the OLED daemon: subscribes, blits, no forks
+    loa-oled/          the OLED daemon: subscribes, blits, no forks
     ripperdoc/          the bench console, Ratatui
 
 ## The contract, in one place
@@ -56,7 +56,7 @@ is native.
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
     sudo apt-get install -y cmake build-essential
     # then
-    scripts/deploy-panel.sh && scripts/deploy-ring.sh
+    scripts/deploy-oled.sh && scripts/deploy-ring.sh
 
 Cross-compiling from dixie also works (`--target aarch64-unknown-linux-gnu`,
 needs `protoc`, `gcc-aarch64-linux-gnu`, the rustup target, and cmake for the

@@ -1,12 +1,12 @@
 [workspace]
 # The loa in Rust. Same tree, same wire contract, one binary per job:
 #   loa-topic   the wire: protobuf bindings + the subscriber, shared
-#   loa-panel   the OLED daemon — owns SPI0, blits what the feed published
+#   loa-oled   the OLED daemon — owns SPI0, blits what the feed published
 #   ripperdoc   the bench console, Ratatui
 # Members are added as each one starts existing: a workspace that names a crate
 # that is not there does not build, and a broken build is worse than a short
 # member list.
-members = ["loa-topic", "loa-panel", "loa-ring", "loa-gpio", "loa-sense", "loa-motion", "loa-sonar", "loa-weather", "loa-matrix", "ripperdoc"]
+members = ["loa-topic", "loa-oled", "loa-ring", "loa-gpio", "loa-sense", "loa-motion", "loa-sonar", "loa-weather", "loa-matrix", "ripperdoc"]
 resolver = "2"
 
 [workspace.package]

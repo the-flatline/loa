@@ -113,14 +113,14 @@ impl Drop for Lgpio {
     }
 }
 
-pub struct Panel {
+pub struct Oled {
     spi: spidev::Spidev,
     gpio: Lgpio,
     flip: Option<bool>,
     contrast: i32,
 }
 
-impl Panel {
+impl Oled {
     pub fn open(path: &str, speed_hz: u32, chip: i32) -> Result<Self, String> {
         let mut spi = spidev::Spidev::open(path).map_err(|e| format!("{path}: {e}"))?;
         let opts = spidev::SpidevOptions::new()
@@ -136,7 +136,7 @@ impl Panel {
         gpio.set(RES, 1);
         std::thread::sleep(std::time::Duration::from_millis(50));
 
-        let mut p = Panel {
+        let mut p = Oled {
             spi,
             gpio,
             flip: None,

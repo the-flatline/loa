@@ -22,7 +22,7 @@ ONE DIRECTORY PER SUBSYSTEM, so the tree says what each file is:
 
 THE DISPLAYS ARE NOT HERE ANY MORE. ``oled/`` and ``ring/__main__`` +
 ``ring/neopixel`` were the Python displays — the blit loop and the SH1106 and
-WS2812 drivers — and Rust replaced them (``rust/loa-panel``, ``rust/loa-ring``).
+WS2812 drivers — and Rust replaced them (``rust/loa-oled``, ``rust/loa-ring``).
 Deleted rather than left as a second way to drive the same glass: a display that
 exists in two languages is a display whose two copies drift, which is exactly
 what happened to the wire framing on 2026-09-14.

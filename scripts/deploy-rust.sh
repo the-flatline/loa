@@ -6,8 +6,8 @@
 # toolchain to keep in step, and no vendored C library has to be coaxed into a
 # foreign target — which is exactly where the cross path fell over on libzmq.
 #
-#   scripts/deploy-rust.sh                    loa-panel loa-ring
-#   scripts/deploy-rust.sh loa-panel          just one
+#   scripts/deploy-rust.sh                    loa-oled loa-ring
+#   scripts/deploy-rust.sh loa-oled          just one
 #
 # The source is COPIED, not cloned: the repo is private and the body has no key
 # for it. target/ is excluded — the body keeps its own object cache, which is
@@ -16,7 +16,7 @@ set -eu
 BODY="${LOA_BODY:-loa}"
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 DEST=/home/flatline/loa-rust
-CRATES="${*:-loa-panel loa-ring}"
+CRATES="${*:-loa-oled loa-ring}"
 
 BINS=""
 for c in $CRATES; do BINS="$BINS -p $c"; done
@@ -44,9 +44,9 @@ tail -3 /tmp/deploy-rust-build.log
 echo "== install =="
 for c in $CRATES; do
     case "$c" in
-    loa-panel|loa-ring|loa-motion|loa-sonar|loa-weather|loa-fault)
+    loa-oled|loa-ring|loa-motion|loa-sonar|loa-weather|loa-fault)
         # The service names are unchanged on purpose: the sweep asserts that
-        # loa-panel holds spidev0.0 and loa-ring holds spidev1.0, so a renamed
+        # loa-oled holds spidev0.0 and loa-ring holds spidev1.0, so a renamed
         # binary would make a healthy body report BUS CLASH against itself.
         ssh "$BODY" "sudo -n install -m 755 $DEST/rust/target/release/$c /usr/local/bin/$c"
         ssh "$BODY" "sudo -n systemctl restart $c"
@@ -60,4 +60,4 @@ done
 
 echo "== what the daemons say now =="
 sleep 6
-ssh "$BODY" 'sudo -n journalctl -u loa-panel -u loa-ring -n 6 --no-pager | grep -E "written/s|feed error" | tail -4'
+ssh "$BODY" 'sudo -n journalctl -u loa-oled -u loa-ring -n 6 --no-pager | grep -E "written/s|feed error" | tail -4'

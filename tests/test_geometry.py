@@ -1,6 +1,6 @@
 """One number, two languages.
 
-The glass and the strip are Rust now (rust/loa-panel, rust/loa-ring) and the
+The glass and the strip are Rust now (rust/loa-oled, rust/loa-ring) and the
 wire that describes them is Python. So the sizes they must agree about — 1024
 bytes of face, 72 bytes of ring — are written down TWICE, in two languages, with
 no compiler that can see both.
@@ -31,15 +31,15 @@ def _const(path, name):
     return int(m.group(1).replace("_", ""))
 
 
-def test_the_rust_panel_agrees_with_the_python_geometry():
-    """The panel's frame size is the wire's frame size. A Rust panel that
+def test_the_rust_oled_agrees_with_the_python_geometry():
+    """The OLED's frame size is the wire's frame size. A Rust OLED that
     disagreed would blit a wrong-shaped frame onto the wrong pixels, and the
     Python side would have no way to notice."""
-    src = RUST / "loa-panel" / "src" / "panel.rs"
+    src = RUST / "loa-oled" / "src" / "oled.rs"
     assert _const(src, "WIDTH") == geom.FACE_WIDTH
     assert _const(src, "PAGES") == geom.FACE_PAGES
     assert _const(src, "HEIGHT") == geom.FACE_HEIGHT
-    # BYTES is COMPUTED in panel.rs (WIDTH * PAGES), on purpose — so the check
+    # BYTES is COMPUTED in oled.rs (WIDTH * PAGES), on purpose — so the check
     # here is the product, not a literal that could disagree with its own parts.
     assert _const(src, "WIDTH") * _const(src, "PAGES") == geom.FACE_BYTES
 
@@ -60,7 +60,7 @@ def test_the_renderers_still_emit_exactly_what_the_wire_carries():
 def test_the_sizes_are_computed_not_spelled_out():
     """A number written twice drifts; a number computed from the one definition
     cannot. This catches the case where someone replaces 128*8 with 1024."""
-    src = (RUST / "loa-panel" / "src" / "panel.rs").read_text()
+    src = (RUST / "loa-oled" / "src" / "oled.rs").read_text()
     assert "pub const BYTES: usize = WIDTH * PAGES;" in src
     ring_src = (RUST / "loa-ring" / "src" / "neopixel.rs").read_text()
     assert "pub const BYTES: usize = LEDS * 3;" in ring_src

@@ -1,12 +1,12 @@
-//! loa-panel — the face display, on the glass, in Rust.
+//! loa-oled — the face display, on the glass, in Rust.
 //!
 //! A PURE DISPLAY, like the Python daemon it replaces: it subscribes to the
 //! `ripperdoc` topic and blits the 1024 bytes the cortex rendered. It does not
 //! render, derive state, or push anything up. The brain owns the picture.
 //!
-//!    loa-panel                  the daemon (runs forever)
-//!    loa-panel --secs 10        run for 10 seconds and report what it wrote
-//!    loa-panel --fps 0          uncapped: blit every frame, never sleep
+//!    loa-oled                  the daemon (runs forever)
+//!    loa-oled --secs 10        run for 10 seconds and report what it wrote
+//!    loa-oled --fps 0          uncapped: blit every frame, never sleep
 //!
 //! Everything about the rate is a setting, and the counters are the point: a
 //! panel that reports how many frames it actually WROTE is a panel you can
@@ -15,7 +15,7 @@
 use std::time::{Duration, Instant};
 
 use loa_topic::{feed_endpoints, Subscriber};
-use loa_panel::panel::{self, Panel};
+use loa_oled::oled::{self, Panel};
 
 /// How long a recv may park before the loop notices nothing is arriving. Short,
 /// because a parked consumer cannot tell a quiet feed from a dead body.
@@ -65,19 +65,19 @@ fn main() {
     let mut panel = match Panel::open(&args.spi, args.hz, args.chip) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("loa-panel: no panel: {e}");
+            eprintln!("loa-oled: no panel: {e}");
             std::process::exit(1);
         }
     };
     if let Err(e) = panel.clear() {
-        eprintln!("loa-panel: clear failed: {e}");
+        eprintln!("loa-oled: clear failed: {e}");
     }
 
     let endpoints = feed_endpoints();
     let mut sub = match Subscriber::connect(&endpoints, &["ripperdoc"]) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("loa-panel: no feed at {:?}: {e}", endpoints);
+            eprintln!("loa-oled: no feed at {:?}: {e}", endpoints);
             std::process::exit(1);
         }
     };
@@ -106,7 +106,7 @@ fn main() {
         let batch = match sub.drain() {
             Ok(b) => b,
             Err(e) => {
-                eprintln!("loa-panel: feed error: {e}");
+                eprintln!("loa-oled: feed error: {e}");
                 std::thread::sleep(Duration::from_millis(50));
                 continue;
             }
@@ -119,7 +119,7 @@ fn main() {
                 Some(f) => f,
                 None => continue,         // no picture in this message
             };
-            if face.len() != panel::BYTES {
+            if face.len() != oled::BYTES {
                 continue;                 // a truncated frame is not a frame
             }
             let want_flip = rd.oled_flip.unwrap_or(false);
@@ -138,7 +138,7 @@ fn main() {
             }
             let t0 = Instant::now();
             if let Err(e) = panel.show(face) {
-                eprintln!("loa-panel: blit failed: {e}");
+                eprintln!("loa-oled: blit failed: {e}");
             }
             blit_ns += t0.elapsed().as_nanos();
             last_buf.clear();
@@ -159,7 +159,7 @@ fn main() {
         if last_report.elapsed() >= Duration::from_secs(5) {
             let el = last_report.elapsed().as_secs_f64();
             eprintln!(
-                "loa-panel: {:.0} written/s, {:.0} identical/s of {} offered/s, {:.3} ms/blit",
+                "loa-oled: {:.0} written/s, {:.0} identical/s of {} offered/s, {:.3} ms/blit",
                 written as f64 / el,
                 repeated as f64 / el,
                 offered as f64 / el,
@@ -180,5 +180,5 @@ fn main() {
         }
     }
     let _ = RECV_MS;
-    eprintln!("loa-panel: done after {:.1}s", started.elapsed().as_secs_f64());
+    eprintln!("loa-oled: done after {:.1}s", started.elapsed().as_secs_f64());
 }

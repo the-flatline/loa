@@ -1,15 +1,13 @@
 [Unit]
-Description=loa panel — the face display: owns SPI0, blits the ripperdoc topic
-# The Python face daemon (loa-oled.service) is the same job in the slower
-# language. This unit replaces it: the Rust binary cross-compiled on dixie, no
-# interpreter and no venv on the body. loa-oled is left in the tree for
-# rollback and is DISABLED, not deleted — two units owning SPI0 is two daemons
-# fighting over the glass.
+Description=loa-oled — the face display: owns SPI0, drives the glass
+# The face daemon. One unit, one name, and it is the Rust binary: cross-compiled
+# on dixie, no interpreter and no venv on the body. There is no second unit for
+# this job — two owners of SPI0 is two daemons fighting over the glass.
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/loa-panel
+ExecStart=/usr/local/bin/loa-oled
 # The feed is local to the body, so the endpoint is loopback by default. No
 # environment is needed and none is set, so nothing here can drift from the
 # daemon's own defaults.

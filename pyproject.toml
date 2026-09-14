@@ -35,8 +35,8 @@ dev = [
 # and the installed `loa-motion` run the SAME function.
 #
 # NO loa-oled AND NO loa-ring: those two daemons are Rust binaries now
-# (rust/loa-panel, rust/loa-ring), installed to /usr/local/bin by
-# scripts/deploy-panel.sh and scripts/deploy-ring.sh. Console scripts for them
+# (rust/loa-oled, rust/loa-ring), installed to /usr/local/bin by
+# scripts/deploy-oled.sh and scripts/deploy-ring.sh. Console scripts for them
 # would be a second way to start a second implementation of the same display.
 loa-cortex = "loa.cortex.__main__:main"
 loa-weather = "loa.weather.__main__:main"

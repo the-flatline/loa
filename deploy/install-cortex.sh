@@ -23,8 +23,8 @@ echo "== installing services =="
 sudo cp deploy/loa-ring.service deploy/loa-cortex.service \
         deploy/loa-motion.service deploy/loa-sonar.service deploy/loa-weather.service \
         deploy/loa-fault.service deploy/loa-fault.timer /etc/systemd/system/
-# NO loa-oled.service: the face panel is the Rust binary now, installed and
-# enabled by scripts/deploy-panel.sh. Enabling both is two daemons on one SPI
+# NO loa-oled.service: the face display is the Rust binary now, installed and
+# enabled by scripts/deploy-oled.sh. Enabling both is two daemons on one SPI
 # bus, and the sweep calls that BUS CLASH for good reason.
 sudo systemctl daemon-reload
 sudo systemctl enable --now loa-ring loa-cortex \
@@ -32,11 +32,10 @@ sudo systemctl enable --now loa-ring loa-cortex \
                             loa-fault.timer
 
 echo "== retiring units that no longer exist =="
-# loa-oled: the Python face daemon. Rust owns the glass now (loa-panel), so the
-# unit is deleted rather than disabled — a disabled unit is a second way to
-# start a second implementation of the same display, one `systemctl enable`
-# away. The rollback path for it is git history, not /etc/systemd/system.
-for dead in loa-oled loa-presence loa-sense loa-api loa-faults loa-ctl loa-record loa-relay; do
+# loa-oled is RETIRED FROM THIS LIST. It is the Rust display daemon now, and the
+# loop below deletes the unit file it installs. The Python daemon that used to
+# answer to this name is gone from the tree; the unit file is deleted with it.
+for dead in loa-panel loa-presence loa-sense loa-api loa-faults loa-ctl loa-record loa-relay; do
   sudo systemctl disable --now "$dead" 2>/dev/null || true
   sudo rm -f "/etc/systemd/system/$dead.service"
 done
