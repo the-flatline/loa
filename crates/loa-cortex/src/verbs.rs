@@ -55,7 +55,13 @@ pub fn feel(cx: &mut Cortex, feeling: Option<&str>, next: bool, note: Option<&st
     let mood = if next {
         moods::next_from(&cx.st.mood)
     } else {
-        let f = feeling.ok_or("feel needs feeling or next")?;
+        let f = feeling.ok_or_else(|| {
+            // Both-empty is the same 400 as a bad word, exactly as the
+            // reference: there is no "needs feeling or next" in its vocabulary.
+            let mut names: Vec<_> = moods::MOODS.iter().map(|m| m.name).collect();
+            names.sort();
+            format!("feeling must be one of {}", names.join("/"))
+        })?;
         moods::by_name(f).ok_or_else(|| {
             let mut names: Vec<_> = moods::MOODS.iter().map(|m| m.name).collect();
             names.sort();

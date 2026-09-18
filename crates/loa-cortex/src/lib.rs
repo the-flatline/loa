@@ -8,6 +8,7 @@
 //! before the one above it exists.
 
 pub mod build;
+pub mod http;
 pub mod moods;
 pub mod store;
 pub mod vault;
