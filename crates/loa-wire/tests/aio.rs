@@ -3,6 +3,7 @@
 #![cfg(feature = "async")]
 
 use loa_wire::{aio, envelope, pb, Error};
+use prost::Message as _;
 use std::time::Duration;
 
 fn ring_msg() -> pb::Envelope {
@@ -82,4 +83,42 @@ async fn contract_refused_on_the_async_path() {
         assert!(std::time::Instant::now() < deadline, "no frame to refuse in 5s");
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
+}
+
+#[tokio::test]
+async fn a_hundred_frames_arrive_whole_and_in_order() {
+    // The relay's claim: 100 frames leave the PUSH and every one reaches
+    // the PULL in order. PUSH queues until the pipe is up, so a short
+    // settle beats flooding the socket warm.
+    let ctx = zmq::Context::new();
+    let rx = aio::AInbound::pull(&ctx, "tcp://127.0.0.1:19001").unwrap();
+    let tx = loa_wire::Sender::connect(&ctx, "tcp://127.0.0.1:19001").unwrap();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    for i in 0..100u8 {
+        let env = envelope(pb::envelope::Body::Ring(pb::Ring {
+            ring: Some(vec![i; 72]),
+            ts: Some(i as f64),
+            ..Default::default()
+        }));
+        tx.push_frame("oled", &env).unwrap();
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let mut last_ts = -1.0;
+    let mut got = 0;
+    while got < 100 {
+        if let Some(parts) = rx.recv_nowait().unwrap() {
+            let env = pb::Envelope::decode(parts[1].as_slice()).unwrap();
+            let ts = match env.body {
+                Some(pb::envelope::Body::Ring(r)) => r.ts.unwrap(),
+                _ => panic!("wrong body on the wire"),
+            };
+            assert_eq!(ts, last_ts + 1.0, "lost or reordered after {last_ts}: {ts}");
+            last_ts = ts;
+            got += 1;
+        } else {
+            assert!(std::time::Instant::now() < deadline, "only {got}/100 arrived");
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    }
+    assert_eq!(got, 100);
 }
