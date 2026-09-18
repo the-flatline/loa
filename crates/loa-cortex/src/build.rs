@@ -201,3 +201,38 @@ mod tests {
         }
     }
 }
+
+/// The power topic: rails as read on the body. The map arrives as JSON from
+/// the sampler; the wire wants string values (schema: map<string,double>).
+/// An empty map still rides — "no rails readable" is a fact the FRAG page
+/// draws, and a topic that goes silent looks exactly like a dead body.
+pub fn build_power(rails: &serde_json::Map<String, serde_json::Value>) -> pb::envelope::Body {
+    let mut m = pb::Power::default();
+    m.ts = Some(crate::state::now_s());
+    for (k, v) in rails {
+        if let Some(f) = v.as_f64() {
+            m.rails.insert(k.clone(), f);
+        }
+    }
+    pb::envelope::Body::Power(m)
+}
+
+/// Something happened. The detail crosses the wire stringified — the schema
+/// says scalars only, and a bytes field here would base64 itself into the
+/// database where nobody looks for an encoding.
+pub fn build_event(kind: &str, detail: &serde_json::Value, ts: f64) -> pb::envelope::Body {
+    let mut m = pb::Event::default();
+    m.kind = kind.into();
+    m.ts = ts;
+    if let Some(obj) = detail.as_object() {
+        for (k, v) in obj {
+            let s = match v {
+                serde_json::Value::Null => continue,
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            m.detail.insert(k.clone(), s);
+        }
+    }
+    pb::envelope::Body::Event(m)
+}

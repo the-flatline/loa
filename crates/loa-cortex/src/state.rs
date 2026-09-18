@@ -82,6 +82,11 @@ const BARO_DEADBAND_HPA_H: f64 = 0.3;
 pub struct Cortex {
     pub st: State,
     baro: VecDeque<(f64, f64)>, // (ts, pressure_hpa), oldest first
+    /// The last frame each device pushed up, as it pushed it. The relay
+    /// stores these on its way past, and every consumer-facing publish of
+    /// `ripperdoc` carries the face inside it — one shape, one source.
+    pub last_face: Option<Vec<u8>>,
+    pub last_ring: Option<Vec<u8>>,
 }
 
 impl Default for State {
