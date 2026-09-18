@@ -10,7 +10,6 @@ description = "loa's ring daemon: renders the tell from state, owns the WS2812B 
 # this marker. The line that adds `crates/loa-ring` to the root members MUST
 # come with this marker's removal — a member declaring its own workspace root
 # is a second root, and cargo refuses the tree.
-[workspace]
 
 [dependencies]
 loa-wire = { path = "../loa-wire", features = ["async"] }

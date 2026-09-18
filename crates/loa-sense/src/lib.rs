@@ -74,9 +74,13 @@ type FullFn = dyn Fn() -> pb::envelope::Body + Send + Sync;
 /// A sense daemon's uplink: the PUSH leg, the init SUB leg, and the full-payload
 /// republish hook. One libzmq context for both, per the wire's rule.
 pub struct Sense {
-    // Context cloned into Sender/AInbound; held here too so the sense owns the
-    // context that must outlive every socket in it.
-    _ctx: zmq::Context,
+    // DECLARATION ORDER IS DROP ORDER, AND IT IS THE BUG THE HISTORY NAMED:
+    // libzmq wants sockets closed BEFORE the context terminates — a Context
+    // dropped first blocks in zmq_ctx_term forever waiting on sockets that
+    // cannot drop because the drop that would free them is parked behind it
+    // (hang at exit, reads as a daemon that will not shut down; the
+    // publish_refuses test proved it the moment it ran). Sockets first, the
+    // context last.
     push: Sender,
     inbox: aio::AInbound,
     full: Mutex<Option<Arc<FullFn>>>,
@@ -84,6 +88,9 @@ pub struct Sense {
     answers: AtomicUsize,
     pub inbound: String,
     pub feed: String,
+    // Context cloned into Sender/AInbound; held here too so the sense owns the
+    // context that must outlive every socket in it.
+    _ctx: zmq::Context,
 }
 
 impl Sense {
@@ -98,7 +105,6 @@ impl Sense {
         let inbox = aio::AInbound::sub(&ctx, &[feed.clone()], &["init"])
             .map_err(|e| e.to_string())?;
         Ok(Sense {
-            _ctx: ctx,
             push,
             inbox,
             full: Mutex::new(None),
@@ -106,6 +112,7 @@ impl Sense {
             answers: AtomicUsize::new(0),
             inbound,
             feed,
+            _ctx: ctx,
         })
     }
 
@@ -269,8 +276,23 @@ pub fn setting_str(env_key: &str, group: &str, key: &str, default: &str) -> Stri
 /// offline spellings are the point, because loa.conf carries `snr_enabled:
 /// false` for a module that is deliberately unplugged, and a reader that only
 /// understood `false` would turn the sonar back on.
+///
+/// PRESENCE beats emptiness here, unlike `setting_str`: an env var set to ""
+/// is an answer ("off" — one of the offline spellings the Python truthiness
+/// list carries), while an ABSENT var is no answer at all.
 pub fn setting_bool(env_key: &str, group: &str, key: &str, default: bool) -> bool {
-    let raw = setting_str(env_key, group, key, if default { "true" } else { "false" });
+    if let Ok(v) = std::env::var(env_key) {
+        return truthy(&v);
+    }
+    match conf_value(group, key) {
+        Some(serde_json::Value::Bool(b)) => b,
+        Some(serde_json::Value::String(s)) => truthy(&s),
+        Some(serde_json::Value::Number(n)) => truthy(&n.to_string()),
+        _ => default,
+    }
+}
+
+fn truthy(raw: &str) -> bool {
     !matches!(
         raw.trim().to_ascii_lowercase().as_str(),
         "0" | "false" | "no" | "off" | ""

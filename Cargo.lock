@@ -853,6 +853,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "loa-ring"
+version = "0.1.0"
+dependencies = [
+ "loa-common",
+ "loa-wire",
+ "prost",
+ "rand 0.8.8",
+ "spidev",
+ "tokio",
+ "zmq",
+]
+
+[[package]]
 name = "loa-wire"
 version = "0.1.0"
 dependencies = [
