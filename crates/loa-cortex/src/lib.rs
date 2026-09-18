@@ -10,5 +10,6 @@
 pub mod build;
 pub mod moods;
 pub mod store;
+pub mod vault;
 pub mod verbs;
 pub mod state;

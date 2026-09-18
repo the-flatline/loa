@@ -1,0 +1,17 @@
+{
+ "note": "cut from the Python vault's own primitives 2026-09-14. The Rust vault must reproduce all of it byte-for-byte, forever.",
+ "token_raw_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+ "presented": "072c93b7034cd7905cec82033dc5f2ac0b40c51a5627fb178df53a3fefa2d2cc",
+ "fernet_key_b64": "oTKsoEIxuzU-x7pMJvvjOy2JuS0q2udgXoa3v333Lf4=",
+ "journal_token": "gAAAAABqrQjMohrA5oDe_pj3kpnCcG8cGp3oylj_mKmxt8SfQBNFypsN9rAUOvwMkJnmleVVT9OlS6mN4Bc7NwNfZHwwTGQO7fepGEOVrqo-0Mar1MMIA0mGAb7ART_mj8NEfqqa2F_HWQlJWf6jdqyuw-0p1ulxexLpjblU-JvZNz55nKUUOs_rwU7GkSQ3uMCZSrXn8Nvc",
+ "entries": [
+  {
+   "ts": 1000.5,
+   "entry": "first line"
+  },
+  {
+   "ts": 2000.25,
+   "entry": "second \u00e9"
+  }
+ ]
+}
