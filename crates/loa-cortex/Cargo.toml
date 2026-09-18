@@ -16,7 +16,9 @@ zmq = "0.10"
 prost = "0.13"
 serde_json = "1"
 # The store's JSONB round-trips through the same Value type the door uses.
-postgres = { version = "0.19", features = ["with-serde_json-1"] }
+# No TLS: the connection reaches aleph through an SSH tunnel on loopback,
+# and plaintext-on-loopback is what the Python does.
+postgres = { version = "0.19", default-features = false, features = ["with-serde_json-1"] }
 # The vault: journal is one Fernet token (AES-128-CBC + HMAC-SHA256, the
 # format is public and small), the seal is HMAC-SHA256. Pure-Rust crates
 # only: no OpenSSL, so the aarch64 binary stays a single static file.
