@@ -1,0 +1,21 @@
+[package]
+name = "loa-fault"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "the pain sense: sweeps the body's own health, publishes the fault topic"
+
+# The decision core (lib.rs) speaks only loa-common's words. The daemon shell
+# (main.rs) needs the wire contract and libc: statvfs for the disk numbers
+# (shutil.disk_usage's exact source), localtime_r for the report's timestamp
+# line. No tokio: three sockets and one loop do not need a runtime.
+[dependencies]
+loa-wire = { path = "../loa-wire" }
+loa-common = { path = "../loa-common" }
+zmq = "0.10"
+libc = "0.2"
+
+# Self-contained while the root workspace names its members one by one (the
+# ripperdoc precedent): a crate under a workspace root must be a member or
+# declare itself excluded, or `cargo build` here dies on the parent manifest.
+# The marker disappears when the root names this crate.

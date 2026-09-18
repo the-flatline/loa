@@ -13,7 +13,7 @@ use crate::fonts;
 
 pub const WIDTH: usize = 128;
 pub const HEIGHT: usize = 64;
-const PAGES: usize = 8;
+pub const PAGES: usize = 8;
 
 /// A frame as the panel wants it: 8 pages of 128 bytes.
 pub type Buf = [u8; PAGES * WIDTH];
@@ -85,7 +85,10 @@ impl Frame {
     pub fn text(&mut self, mut x: i32, y: i32, s: &str, on: bool) {
         for ch in s.chars() {
             let glyph = fonts::g5x7(ch);
-            for (cx, &col) in glyph.iter().enumerate() {
+            for (cx, col) in [glyph.0, glyph.1, glyph.2, glyph.3, glyph.4]
+                .into_iter()
+                .enumerate()
+            {
                 for cy in 0..7 {
                     if col & (1 << cy) != 0 {
                         self.px(x + cx as i32, y + cy, on);
@@ -104,7 +107,7 @@ impl Frame {
     pub fn text3x5(&mut self, mut x: i32, y: i32, s: &str, on: bool) {
         for ch in s.chars() {
             let glyph = fonts::g3x5(ch);
-            for (cx, &col) in glyph.iter().enumerate() {
+            for (cx, col) in [glyph.0, glyph.1, glyph.2].into_iter().enumerate() {
                 for cy in 0..5 {
                     if col & (1 << cy) != 0 {
                         self.px(x + cx as i32, y + cy, on);
@@ -192,7 +195,7 @@ mod tests {
         f.text(0, 0, "A", true);
         // g5x7('A') = (0x0E, 0x11, 0x1F, 0x11, 0x11), column-major bit0=top
         let glyph = fonts::g5x7('A');
-        for (cx, &col) in glyph.iter().enumerate() {
+        for (cx, col) in [glyph.0, glyph.1, glyph.2, glyph.3, glyph.4].into_iter().enumerate() {
             for cy in 0..7 {
                 assert_eq!(bit(&f.buf, cx, cy), col & (1 << cy) != 0);
             }
@@ -208,7 +211,7 @@ mod tests {
         let mut f = Frame::new();
         f.text3x5(0, 0, "AB", true);
         let b = fonts::g3x5('B');
-        for (cx, &col) in b.iter().enumerate() {
+        for (cx, col) in [b.0, b.1, b.2].into_iter().enumerate() {
             for cy in 0..5 {
                 assert_eq!(bit(&f.buf, 4 + cx, cy), col & (1 << cy) != 0);
             }

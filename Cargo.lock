@@ -675,6 +675,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "loa-fault"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "loa-common",
+ "loa-wire",
+ "zmq",
+]
+
+[[package]]
 name = "loa-oled"
 version = "0.1.0"
 dependencies = [
@@ -682,8 +692,10 @@ dependencies = [
  "loa-common",
  "loa-wire",
  "rand 0.8.8",
+ "serde_json",
  "spidev",
  "tokio",
+ "zmq",
 ]
 
 [[package]]

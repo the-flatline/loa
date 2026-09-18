@@ -7,11 +7,19 @@ description = "the bench console — Workbench chrome, a live face and ring, mea
 
 [dependencies]
 loa-wire = { path = "../loa-wire" }
+# Subscriber takes a zmq Context by reference; the console holds one.
+zmq = "0.10"
 ratatui = "0.29"
 crossterm = "0.28"
+# Commands go over ONE hand-rolled POST to the door — no HTTP crate. The Pi
+# carries one static binary and ureq+rustls dragged a crypto stack onto it for
+# a request this console makes a few times a session; a TcpStream that writes
+# a POST and reads a status line is thirty lines. The old console had the same
+# rule with a tiny poster; the hand-rolled form is what survives here.
 
-# Self-contained while the root workspace names its members one by one; once
-# ripperdoc is a workspace member this marker disappears from cargo's view and
-# the root governs. Without it, building this crate by path fails: a crate
-# under a workspace root must be a member or declare itself excluded.
+# Self-contained while the root names its members one by one: a package under
+# a workspace root that is not in `members` does not build by path without
+# this marker. The line that adds `crates/ripperdoc` to the root members MUST
+# come with this marker's removal — a member declaring its own workspace root
+# is a second root, and cargo refuses the tree.
 [workspace]

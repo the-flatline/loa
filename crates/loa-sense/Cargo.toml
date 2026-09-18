@@ -9,3 +9,11 @@ description = "what every sensor daemon shares: push a reading, answer init with
 loa-wire = { path = "../loa-wire", features = ["async"] }
 prost = "0.13"
 tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "time", "sync"] }
+# The same libzmq the wire runs on: the Sender/AInbound types take its context.
+zmq = "0.10"
+# The pins come from liblgpio at RUNTIME — no headers, no link-time dependency.
+libloading = "0.8"
+# loa.conf is JSON, same file the Python config reader parses.
+serde_json = "1"
+# clock_gettime for edge-stamp magnitudes; the i2c door's ioctls.
+libc = "0.2"
