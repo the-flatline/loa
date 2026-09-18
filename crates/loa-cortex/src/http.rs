@@ -2,9 +2,10 @@
 //! OUT on the feed, never here. A new capability is a new verb, never a
 //! second route. tiny_http owns the protocol; this file owns the dispatch.
 
-use std::sync::mpsc;
 use std::sync::Mutex;
 use std::thread;
+
+use tokio::sync::mpsc::UnboundedSender;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -245,7 +246,7 @@ pub struct Door {
     pub addr: String,
     cx: Arc<Mutex<Cortex>>,
     vault: Arc<Vault>,
-    events: mpsc::Sender<(String, Value)>,
+    news: UnboundedSender<News>,
 }
 
 impl Door {
@@ -253,9 +254,9 @@ impl Door {
         addr: String,
         cx: Arc<Mutex<Cortex>>,
         vault: Arc<Vault>,
-        events: mpsc::Sender<(String, Value)>,
+        news: UnboundedSender<News>,
     ) -> Self {
-        Door { addr, cx, vault, events }
+        Door { addr, cx, vault, news }
     }
 
     /// Bind and serve forever. Errors are returned once, before the loop:
@@ -264,7 +265,7 @@ impl Door {
         let server = tiny_http::Server::http(&self.addr)
             .map_err(|e| format!("door bind {}: {e}", self.addr))?;
         for request in server.incoming_requests() {
-            handle(&self.cx, &self.vault, &self.events, request);
+            handle(&self.cx, &self.vault, &self.news, request);
         }
         Ok(())
     }
@@ -277,10 +278,10 @@ impl Door {
 fn handle(
     cx: &Arc<Mutex<Cortex>>,
     vault: &Arc<Vault>,
-    events: &mpsc::Sender<(String, Value)>,
+    news: &UnboundedSender<News>,
     mut request: tiny_http::Request,
 ) {
-    let out = route(cx, vault, events, &mut request);
+    let out = route(cx, vault, news, &mut request);
     let resp = tiny_http::Response::from_string(out.body.to_string())
         .with_status_code(out.status)
         .with_header(
@@ -296,7 +297,7 @@ fn handle(
 fn route(
     cx: &Arc<Mutex<Cortex>>,
     vault: &Arc<Vault>,
-    events: &mpsc::Sender<(String, Value)>,
+    news: &UnboundedSender<News>,
     request: &mut tiny_http::Request,
 ) -> Out {
     if request.url() != "/api" || *request.method() != tiny_http::Method::Post {
@@ -323,7 +324,12 @@ fn route(
     let (out, event) = dispatch(&mut guard, vault, cmd, &args, token.as_deref());
     drop(guard);
     if let Some((kind, detail)) = event {
-        let _ = events.send((kind.to_string(), detail));
+        // the event rides ahead of the state change; both matter, order too
+        let _ = news.send(News::Event { kind, detail });
+        let _ = news.send(News::StateChanged);
+    } else if out.status == 200 && matches!(cmd, "feel" | "display" | "ripperdoc") {
+        // a successful state verb always re-publishes, even a no-op page set
+        let _ = news.send(News::StateChanged);
     }
     out
 }
@@ -363,14 +369,14 @@ mod serve_tests {
     fn a_real_request_moves_real_state() {
         let cx = Arc::new(Mutex::new(Cortex::new()));
         let vault = Arc::new(Vault::open("/tmp/loa-door-serve-unused"));
-        let (tx, _rx) = mpsc::channel();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<News>();
         // port 0 is not a thing for tiny_http's http(); grab one by binding
         // a listener, dropping it, and hoping — good enough for a test on
         // loopback, and the door's bind error path is one line to read.
         let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = probe.local_addr().unwrap().to_string();
         drop(probe);
-        let door = Door { addr: addr.clone(), cx: cx.clone(), vault, events: tx };
+        let door = Door::new(addr.clone(), cx.clone(), vault, tx);
         thread::spawn(move || door.serve().unwrap());
         thread::sleep(std::time::Duration::from_millis(100));
 
@@ -385,4 +391,15 @@ mod serve_tests {
         sock.read_to_string(&mut raw).unwrap();
         assert!(raw.starts_with("HTTP/1.1 404"), "{raw}");
     }
+}
+
+/// What the door tells the rest of the cortex. The door owns no sockets,
+/// no locks, no clocks — it posts news and answers HTTP. Everything else
+/// (store, feed) reacts to this.
+#[derive(Debug)]
+pub enum News {
+    /// A command moved state: re-publish the `state` leg, flush settings.
+    StateChanged,
+    /// Something happened: record it and publish the `event` topic.
+    Event { kind: String, detail: Value },
 }
