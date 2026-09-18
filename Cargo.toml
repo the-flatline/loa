@@ -8,7 +8,7 @@
 # Members join as each one starts existing: a workspace that names a crate
 # that is not there does not build.
 [workspace]
-members = ["crates/loa-wire", "crates/loa-common", "crates/loa-cortex"]
+members = ["crates/loa-wire", "crates/loa-common", "crates/loa-cortex", "crates/loa-oled"]
 resolver = "2"
 
 [workspace.package]

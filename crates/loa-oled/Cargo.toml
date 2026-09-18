@@ -1,0 +1,17 @@
+[package]
+name = "loa-oled"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "the face daemon: receives state, renders the 1024 bytes, drives the glass, pushes the frame back"
+
+[dependencies]
+loa-wire = { path = "../loa-wire", features = ["async"] }
+loa-common = { path = "../loa-common" }
+tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "time", "sync"] }
+# Pure Rust: no C dependency to cross-compile, no headers on the body.
+spidev = "0.6"
+# DC and RES come from liblgpio.so.1, which is already on the Pi — loaded at
+# RUNTIME so the build needs no headers and the binary no link-time dependency.
+libloading = "0.8"
+rand = "0.8"
