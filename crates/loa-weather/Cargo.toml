@@ -1,0 +1,13 @@
+[package]
+name = "loa-weather"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "the environment daemon: DHT22-class temp/humidity on GPIO4 + XC3702 baro on I2C 0x77, one Weather payload"
+
+[dependencies]
+loa-sense = { path = "../loa-sense" }
+loa-wire = { path = "../loa-wire", features = ["async"] }
+prost = "0.13"
+tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "time", "sync"] }
+libc = "0.2"

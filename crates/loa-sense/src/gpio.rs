@@ -159,7 +159,12 @@ mod tests {
         // x86 dev box, no lgpio anywhere: the load failure IS the hardware-
         // absent path every daemon exits 1 on. It must arrive as a String.
         let r = Chip::open_with("/definitely/not/liblgpio.so", DEFAULT_CHIP);
-        let e = r.expect_err("a bogus library path must not open a chip");
+        // (no expect_err: Chip holds dlopen'd function pointers and stays
+        // Debug-free on purpose)
+        let e = match r {
+            Ok(_) => panic!("a bogus library path must not open a chip"),
+            Err(e) => e,
+        };
         assert!(e.contains("cannot load"), "wrong shape of failure: {e}");
     }
 

@@ -541,4 +541,20 @@ mod tests {
         m.apply("event", &loa_wire::envelope(body));
         assert_eq!(m.event, "cmd feeling=busy verb=feel");
     }
+    #[test]
+    fn weather_lands_the_folded_baro() {
+        let mut m = Model::default();
+        m.apply(
+            "weather",
+            &loa_wire::envelope(pb::envelope::Body::Weather(pb::Weather {
+                temp_c: Some(21.5),
+                hum_pct: Some(40.0),
+                pressure_hpa: Some(1013.2),
+                trend: Some("steady".into()),
+                ..Default::default()
+            })),
+        );
+        assert_eq!(m.pressure_hpa, Some(1013.2));
+        assert_eq!(m.baro_trend, "steady");
+    }
 }

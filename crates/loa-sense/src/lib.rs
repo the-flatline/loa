@@ -24,7 +24,7 @@
 pub mod gpio;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -81,7 +81,7 @@ pub struct Sense {
     inbox: aio::AInbound,
     full: Mutex<Option<Arc<FullFn>>>,
     frames: AtomicU32,
-    answers: AtomicU32,
+    answers: AtomicUsize,
     pub inbound: String,
     pub feed: String,
 }
@@ -103,7 +103,7 @@ impl Sense {
             inbox,
             full: Mutex::new(None),
             frames: AtomicU32::new(0),
-            answers: AtomicU32::new(0),
+            answers: AtomicUsize::new(0),
             inbound,
             feed,
         })
@@ -207,7 +207,7 @@ impl Sense {
     }
 
     /// Init asks answered.
-    pub fn answers(&self) -> u32 {
+    pub fn answers(&self) -> usize {
         self.answers.load(Ordering::Relaxed)
     }
 

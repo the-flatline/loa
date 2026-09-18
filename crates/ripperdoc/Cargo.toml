@@ -22,4 +22,3 @@ crossterm = "0.28"
 # this marker. The line that adds `crates/ripperdoc` to the root members MUST
 # come with this marker's removal — a member declaring its own workspace root
 # is a second root, and cargo refuses the tree.
-[workspace]

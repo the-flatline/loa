@@ -131,6 +131,12 @@ impl Pir {
                 self.on_ts = None;
                 self.remembered.high = false;
                 self.remembered.last_hold = Some(hold);
+                // The Python's accumulation dict set pir_on_ts to None on the
+                // fall — `_LAST.update(fields)` carries the None through — so
+                // the full answer after a fall says "no open hold", not the
+                // stale rise time. The history's Rust version skipped this
+                // clearing while claiming to mirror the Python; this does not.
+                self.remembered.on_ts = None;
                 out.push(News::State(pb::Pir {
                     high: Some(false),
                     last_hold: Some(hold),
@@ -223,8 +229,8 @@ mod tests {
         let News::State(m) = &news[0] else { panic!("expected fall") };
         assert_eq!(m.high, Some(false));
         assert_eq!(m.last_hold, Some(1.5), "101.5 - 100.0 on_ts");
-        p.tick(true, 103.0); // new rise, pending = 1
-        let news = p.tick(true, 103.2); // pending = 2, 103.2 - 100.2 > 5 -> fire 2
+        p.tick(true, 105.0); // new rise, pending = 1
+        let news = p.tick(true, 105.2); // pending = 2, 105.2 - 100.2 >= 5 -> fire 2
         assert_eq!(kinds(&news), vec!["fire"]);
         let News::Fire { count, .. } = &news[0] else { panic!("expected fire") };
         assert_eq!(*count, 2);

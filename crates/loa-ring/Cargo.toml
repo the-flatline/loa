@@ -1,0 +1,24 @@
+[package]
+name = "loa-ring"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "loa's ring daemon: renders the tell from state, owns the WS2812B over SPI1, pushes frames up"
+
+# Self-contained while the root names its members one by one: a package under
+# a workspace root that is not in `members` does not build by path without
+# this marker. The line that adds `crates/loa-ring` to the root members MUST
+# come with this marker's removal — a member declaring its own workspace root
+# is a second root, and cargo refuses the tree.
+[workspace]
+
+[dependencies]
+loa-wire = { path = "../loa-wire", features = ["async"] }
+loa-common = { path = "../loa-common" }
+tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "time", "sync", "signal"] }
+zmq = "0.10"
+prost = "0.13"
+# The strip: SPI1 at 3.2MHz, the write that becomes WS2812 pulse widths.
+spidev = "0.6"
+# The glitch's red/cyan coins (animations.py:110 draws from `random` too).
+rand = "0.8"
