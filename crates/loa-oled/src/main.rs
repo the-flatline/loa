@@ -55,13 +55,14 @@ fn usage() -> ! {
 
 fn parse_args() -> Args {
     let mut a = Args {
-        // The cortex's PUB: LOA_TOPIC_ENDPOINT names the host, the feed port
-        // is the wire's contract (there is no feed_endpoints helper any more).
-        feed: format!(
-            "tcp://{}:{}",
-            std::env::var("LOA_TOPIC_ENDPOINT").unwrap_or_else(|_| "127.0.0.1".into()),
-            loa_wire::FEED_PORT
-        ),
+        // The cortex's PUB. LOA_TOPIC_ENDPOINT names the host (the wire's
+        // convention) or spells a full endpoint itself; the feed port is the
+        // contract (there is no feed_endpoints helper any more).
+        feed: match std::env::var("LOA_TOPIC_ENDPOINT") {
+            Ok(v) if v.contains("://") => v,
+            Ok(host) => format!("tcp://{host}:{}", loa_wire::FEED_PORT),
+            Err(_) => format!("tcp://127.0.0.1:{}", loa_wire::FEED_PORT),
+        },
         inbound: std::env::var("LOA_INBOUND")
             .unwrap_or_else(|_| format!("tcp://127.0.0.1:{}", loa_wire::INBOUND_PORT)),
         spi: std::env::var("LOA_SPI").unwrap_or_else(|_| "/dev/spidev0.0".into()),
