@@ -839,6 +839,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "loa-motion"
+version = "0.1.0"
+dependencies = [
+ "loa-sense",
+ "loa-wire",
+ "prost",
+ "tokio",
+]
+
+[[package]]
 name = "loa-oled"
 version = "0.1.0"
 dependencies = [
@@ -863,6 +873,40 @@ dependencies = [
  "spidev",
  "tokio",
  "zmq",
+]
+
+[[package]]
+name = "loa-sense"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "libloading",
+ "loa-wire",
+ "prost",
+ "serde_json",
+ "tokio",
+ "zmq",
+]
+
+[[package]]
+name = "loa-sonar"
+version = "0.1.0"
+dependencies = [
+ "loa-sense",
+ "loa-wire",
+ "prost",
+ "tokio",
+]
+
+[[package]]
+name = "loa-weather"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "loa-sense",
+ "loa-wire",
+ "prost",
+ "tokio",
 ]
 
 [[package]]

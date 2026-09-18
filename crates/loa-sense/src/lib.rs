@@ -24,11 +24,12 @@
 pub mod gpio;
 
 use std::collections::HashMap;
+use std::future;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use loa_wire::{aio, envelope, pb, Sender};
+use loa_wire::{aio, envelope, pb};
 
 /// Where readings go: the cortex PULLs here. Loopback, because the senses are
 /// ON the body and there is nothing on the far side of the network this side of
@@ -78,30 +79,42 @@ pub struct Sense {
     // libzmq wants sockets closed BEFORE the context terminates — a Context
     // dropped first blocks in zmq_ctx_term forever waiting on sockets that
     // cannot drop because the drop that would free them is parked behind it
-    // (hang at exit, reads as a daemon that will not shut down; the
-    // publish_refuses test proved it the moment it ran). Sockets first, the
-    // context last.
-    push: Sender,
+    // (hang at exit, reads as a daemon that will not shut down). Sockets
+    // first, the context last.
+    push: zmq::Socket,
     inbox: aio::AInbound,
     full: Mutex<Option<Arc<FullFn>>>,
     frames: AtomicU32,
     answers: AtomicUsize,
     pub inbound: String,
     pub feed: String,
-    // Context cloned into Sender/AInbound; held here too so the sense owns the
-    // context that must outlive every socket in it.
+    // Context cloned into the legs' internals; held here too so the sense
+    // owns the context that must outlive every socket in it.
     _ctx: zmq::Context,
 }
 
 impl Sense {
-    /// Open both legs. PUSH never fails to connect (a missing cortex is a
-    /// queued pipe, not an error — HIGHWATER bounds it); a zmq socket that
-    /// cannot be minted is a real fault and surfaces as one.
+    /// Open both legs on ONE libzmq context (inproc endpoints do not cross a
+    /// context, and a socket minted elsewhere pushes into the void — the
+    /// wire's own lesson). The PUSH leg is built here rather than through
+    /// `loa_wire::Sender` for one reason: Sender leaves LINGER at libzmq's
+    /// default, INFINITE, and a PUSH holding unsent readings to a down
+    /// cortex then BLOCKS FOREVER when the socket drops — the daemon cannot
+    /// exit, not even on `--secs`. The history set `linger(1000)` for exactly
+    /// this ("a reading is not a frame: it must not be dropped on the way
+    /// out", and a daemon that hangs at exit reads as one that will not shut
+    /// down). The contract is unchanged: frames still go out through
+    /// `loa_wire::encode`, topic-vs-payload checked at the source.
     pub fn open() -> Result<Sense, String> {
         let ctx = zmq::Context::new();
         let inbound = inbound_endpoint();
         let feed = feed_endpoint();
-        let push = Sender::connect(&ctx, &inbound).map_err(|e| e.to_string())?;
+        let push = ctx.socket(zmq::PUSH).map_err(|e| e.to_string())?;
+        push.set_linger(1000).map_err(|e| e.to_string())?;
+        // Same HIGHWATER as the wire's Sender: a queued pipe to a restarted
+        // cortex, bounded — never a stalled daemon.
+        push.set_sndhwm(1000).map_err(|e| e.to_string())?;
+        push.connect(&inbound).map_err(|e| e.to_string())?;
         let inbox = aio::AInbound::sub(&ctx, &[feed.clone()], &["init"])
             .map_err(|e| e.to_string())?;
         Ok(Sense {
@@ -133,7 +146,13 @@ impl Sense {
     pub fn publish(&self, body: pb::envelope::Body) -> Result<(), String> {
         let env = envelope(body);
         let topic = loa_wire::body_name(&env).ok_or("empty body — nothing to publish")?;
-        self.push.push(topic, &env).map_err(|e| e.to_string())?;
+        // The contract's own encoder — topic-vs-payload checked at the source,
+        // exactly as `loa_wire::Sender::push` does it; the only difference is
+        // this socket's LINGER.
+        let [name, payload] = loa_wire::encode(topic, &env).map_err(|e| e.to_string())?;
+        self.push
+            .send_multipart([name, payload], zmq::DONTWAIT)
+            .map_err(|e| e.to_string())?;
         self.frames.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
@@ -165,21 +184,30 @@ impl Sense {
         }
     }
 
-    /// Park until at least one init ask is pending, then take it. Mirrors the
-    /// wire's drain-to-newest: the readable FD is the wake-up, recv_nowait is
-    /// the draw. A closed socket never wakes the daemon again, so this parks
-    /// instead of spinning — the process is going away anyway.
+    /// Wait for the next init ask and return. Drain-first, then await the
+    /// socket's readiness: libzmq's ZMQ_FD is level-based, so once the queue
+    /// is empty the FD says not-ready and the await parks; the re-arm
+    /// re-checks, so no ask is ever lost to the wake-then-drain race. On a
+    /// dead socket the daemon goes DEAF (logs once, parks): a run loop whose
+    /// init branch returned instantly would republish the full payload on
+    /// every select pass — a tick smuggled back in through the side door.
     pub async fn wait_init(&self) {
         loop {
             match self.inbox.recv_nowait() {
                 Ok(Some(_)) => return,
                 Ok(None) => {}
-                Err(_) => {
-                    tokio::time::sleep(Duration::from_secs(3600)).await;
+                Err(e) => {
+                    eprintln!("loa-sense: init listener: {e} — going deaf");
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(3600)).await;
+                    }
                 }
             }
-            if self.inbox.readable().await.is_err() {
-                tokio::time::sleep(Duration::from_secs(3600)).await;
+            if let Err(e) = self.inbox.readable().await {
+                eprintln!("loa-sense: init listener: {e} — going deaf");
+                loop {
+                    tokio::time::sleep(Duration::from_secs(3600)).await;
+                }
             }
         }
     }
@@ -201,9 +229,22 @@ impl Sense {
             if secs > 0.0 && started.elapsed() >= Duration::from_secs_f64(secs) {
                 break;
             }
+            // The deadline gets its own branch: with a slow tick (the
+            // disabled-sonar park runs on an hour) and no init ask — a dev
+            // box with no cortex, say — a select over the other two arms
+            // could sleep past `--secs` forever. The timer is bounded by
+            // what is left, and a self-test that cannot stop is a lie.
+            let left = Duration::from_secs_f64(secs.max(0.0)).saturating_sub(started.elapsed());
+            let deadline: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+                if secs > 0.0 {
+                    Box::pin(tokio::time::sleep(left.max(Duration::from_millis(1))))
+                } else {
+                    Box::pin(future::pending())
+                };
             tokio::select! { biased;
                 _ = self.wait_init() => { self.republish_full(); }
                 _ = ticker.tick() => { sample(self); }
+                _ = deadline => { if secs > 0.0 { break; } }
             }
         }
     }
@@ -386,5 +427,111 @@ mod tests {
         let bare = pb::Envelope { schema_version: env.schema_version, body: None };
         assert!(loa_wire::body_name(&bare).is_none(), "bare envelope must have no topic");
         assert_eq!(s.frames(), 1, "the counter counts what went out");
+    }
+
+    /// THE HANDSHAKE, OVER REAL SOCKETS: the cortex's init ask on the feed
+    /// reaches the SUB leg through the skeleton's wait, and the answer off
+    /// the PUSH leg is the daemon's FULL payload — every field the hook
+    /// builds, not a change. This is the one behaviour the skeleton exists
+    /// for; everything else is counting.
+    #[test]
+    fn an_init_ask_on_the_feed_earns_a_full_payload_on_the_inbound() {
+        // Isolated ports so this cannot trade frames with anything else. A
+        // plain #[test]: the ask loop and the PULL drain block, and only
+        // wait_init awaits, on a current-thread runtime built in here.
+        std::env::set_var("LOA_TOPIC_ENDPOINT", "tcp://127.0.0.1:15556");
+        std::env::set_var("LOA_INBOUND", "tcp://127.0.0.1:15555");
+        let r = std::thread::spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let ctx = zmq::Context::new();
+            let pub_sock =
+                loa_wire::Publisher::bind(&ctx, "tcp://127.0.0.1:15556").expect("bind feed");
+            let pull =
+                loa_wire::Receiver::bind(&ctx, "tcp://127.0.0.1:15555").expect("bind inbound");
+            // The Sense is opened INSIDE the runtime: AInbound registers
+            // zmq's FD with the reactor at construction (AsyncFd::new), and
+            // that needs a runtime current — the daemons' #[tokio::main]
+            // always gives them one; a test must too.
+            let sense = rt
+                .block_on(async { Sense::open().expect("open on the isolated ports") });
+            sense.on_full_payload(|| {
+                pb::envelope::Body::Pir(pb::Pir {
+                    high: Some(true),
+                    count: Some(7),
+                    last_ts: Some(111.0),
+                    last_hold: Some(2.2),
+                    on_ts: Some(109.0),
+                    ts: None,
+                })
+            });
+            // The ask, repeated: PUB/SUB is a slow joiner — the cortex
+            // publishes init six times for exactly this reason; the answer
+            // must arrive once, no matter which ask the SUB first caught.
+            let asker = std::thread::spawn(move || {
+                for _ in 0..40 {
+                    let ask = envelope(pb::envelope::Body::Init(pb::Init {
+                        source: Some("test".into()),
+                        ts: Some(1.0),
+                    }));
+                    let _ = pub_sock.publish("init", &ask);
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            });
+            let found = rt.block_on(async {
+                sense.wait_init().await;
+                sense.republish_full();
+                let deadline = Instant::now() + Duration::from_secs(5);
+                loop {
+                    if let Some(parts) = pull.recv_nowait().expect("pull") {
+                        let m = loa_wire::decode(parts).expect("contract-valid answer");
+                        if let Some(pb::envelope::Body::Pir(p)) = m.env.body {
+                            if p.count == Some(7) {
+                                assert_eq!(m.topic, "pir", "the answer rode its own topic");
+                                assert_eq!(p.high, Some(true), "the FULL payload, not a change");
+                                assert_eq!(p.last_ts, Some(111.0));
+                                assert_eq!(p.on_ts, Some(109.0));
+                                assert_eq!(p.last_hold, Some(2.2));
+                                break true;
+                            }
+                        }
+                    }
+                    assert!(Instant::now() < deadline, "no full-payload answer within 5s");
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            });
+            assert_eq!(sense.answers(), 1, "wait_init returned once and answered once");
+            assert!(found, "the handshake completed");
+            drop(sense);
+            let _ = asker.join();
+        });
+        r.join().expect("handshake test thread");
+        std::env::remove_var("LOA_TOPIC_ENDPOINT");
+        std::env::remove_var("LOA_INBOUND");
+    }
+
+    #[test]
+    fn run_loop_ticks_the_sample_and_stops_at_secs() {
+        // --secs N semantics: the loop runs N seconds of sample ticks and
+        // RETURNS; it does not hang and it does not spin without waiting.
+        let hits = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let h = Arc::clone(&hits);
+        let sense = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async move {
+                let s = Sense::open().expect("open");
+                s.run_loop(Duration::from_millis(50), 0.6, move |_| {
+                    h.fetch_add(1, Ordering::Relaxed);
+                })
+                .await;
+                s
+            });
+        sense.report("loa-test", 0.6);
+        let n = hits.load(Ordering::Relaxed);
+        assert!((3..=20).contains(&n), "0.6s of 50ms ticks must be ~12, got {n}");
     }
 }
