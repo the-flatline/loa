@@ -1,0 +1,11 @@
+[package]
+name = "loa-sense"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "what every sensor daemon shares: push a reading, answer init with the full payload"
+
+[dependencies]
+loa-wire = { path = "../loa-wire", features = ["async"] }
+prost = "0.13"
+tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "time", "sync"] }

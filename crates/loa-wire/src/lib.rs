@@ -251,9 +251,14 @@ impl Publisher {
     pub fn bind(ctx: &zmq::Context, endpoint: &str) -> Result<Self> {
         let ctx = ctx.clone();
         let sock = ctx.socket(zmq::PUB).map_err(zmq_err)?;
-        // No send queue for a slow subscriber: PUB drops by nature, and a
-        // backlog here only deepens the lie a slow consumer is being told.
-        sock.set_sndhwm(1).map_err(zmq_err)?;
+        // A bounded window, not a single slot: the pipe holds roughly a
+        // second of frames (120 at 120fps), arrivals past it drop at the
+        // socket, and the consumer's drain keeps the newest. RCVHWM/SNDHWM
+        // enforce min() across the pipe, so BOTH ends must carry the window
+        // or the shallow one silently wins — measured with the e2e's 50-frame
+        // burst, where sndhwm=1 let a stale frame hold the slot and the
+        // newest frame of a finished burst never arrived at all.
+        sock.set_sndhwm(120).map_err(zmq_err)?;
         sock.set_linger(0).map_err(zmq_err)?;
         sock.bind(endpoint).map_err(zmq_err)?;
         Ok(Self { _ctx: ctx, sock, endpoint: endpoint.into() })
@@ -270,8 +275,26 @@ impl Publisher {
     /// Publish an already-routed relay pair (from `route_parts`). No re-check:
     /// the relay was built by swapping a frame the contract already saw.
     pub fn relay(&self, pair: [Vec<u8>; 2]) -> Result<()> {
-        self.sock.send_multipart([pair[0].as_slice(), pair[1].as_slice()], zmq::DONTWAIT)
-            .map_err(zmq_err)?;
+        // A bounded retry, and the WHY is a race the e2e test caught: with
+        // sndhwm=1 an EAGAIN drops the frame, and in a news-only feed the
+        // LAST frame of a burst may be the only one that ever matters — a
+        // still device sends no "next" to heal a lost 49. Retry for a few
+        // ms so the newest wins against a momentarily-full queue; a
+        // permanently wedged consumer still can't stall the body, because
+        // the window is finite and expiry swallows the drop (PUB semantics,
+        // just delayed).
+        for _ in 0..8 {
+            match self
+                .sock
+                .send_multipart([pair[0].as_slice(), pair[1].as_slice()], zmq::DONTWAIT)
+            {
+                Ok(()) => return Ok(()),
+                Err(zmq::Error::EAGAIN) => {
+                    std::thread::sleep(std::time::Duration::from_micros(500))
+                }
+                Err(e) => return Err(zmq_err(e)),
+            }
+        }
         Ok(())
     }
 }
@@ -289,15 +312,18 @@ impl Subscriber {
         let ctx = ctx.clone();
         let sock = ctx.socket(zmq::SUB).map_err(zmq_err)?;
         sock.set_linger(0).map_err(zmq_err)?;
-        // NEVER REPLAY A BACKLOG — and NOT via ZMQ_CONFLATE. Measured
-        // 2026-09-14 on this exact stack: with conflate on a SUB, libzmq
-        // accepted the option and delivered ZERO messages (0 in 3s at 120/s
-        // offered, every topic empty); off, 611 in the same 3s. Documented
-        // for SUB, fails silently — an option that costs the whole feed is
-        // worse than the backlog it was meant to prevent. RCVHWM=1 gives the
-        // same behaviour that actually works: one message queued per pipe,
-        // the rest dropped at the socket, and `drain` keeps the newest.
-        sock.set_rcvhwm(1).map_err(zmq_err)?;
+        // Newest-wins, with a bounded window: the queue holds up to
+        // RCVHWM frames, `drain` keeps only the newest of what arrived, and
+        // arrivals past the mark are dropped at the socket. NOT RCVHWM=1:
+        // with a single slot, a stale frame OCCUPIES it and the socket
+        // drops the NEW message — a stalled consumer resumes on old data,
+        // and a still device sends nothing to heal it. The queue is the
+        // last ~second of frames (120 at frame rate); the lie it can tell
+        // is bounded by that window, never by "whenever the consumer last
+        // looked". NOT ZMQ_CONFLATE either: measured on this stack (the
+        // e2e's 50-frame burst, 2026-09-18), it accepts the option and
+        // delivers zero — multipart messages die in it, silently.
+        sock.set_rcvhwm(120).map_err(zmq_err)?;
         for ep in endpoints {
             sock.connect(ep).map_err(zmq_err)?;
         }
@@ -312,8 +338,13 @@ impl Subscriber {
     pub fn drain(&mut self) -> Result<Option<Msg>> {
         let mut last = None;
         loop {
-            let more = self.sock.get_rcvmore().map_err(zmq_err)?;
-            if !more {
+            // Poll for a whole message, don't peek ZMQ_RCVMORE first: that
+            // flag only means anything MID-message, so a drain that checked
+            // it before receiving ever read the first frame as "no more" and
+            // returned None — silently, forever. The e2e relay caught it.
+            let mut item = self.sock.as_poll_item(zmq::POLLIN);
+            let ready = zmq::poll(&mut [item], 0).map_err(zmq_err)?;
+            if ready == 0 {
                 break;
             }
             let topic = self.sock.recv_bytes(zmq::DONTWAIT).map_err(zmq_err)?;
@@ -458,10 +489,11 @@ pub mod aio {
         pub fn sub(ctx: &zmq::Context, endpoints: &[String], topics: &[&str]) -> Result<Self> {
             let sock = ctx.socket(zmq::SUB).map_err(zmq_err)?;
             sock.set_linger(0).map_err(zmq_err)?;
-            // NOT ZMQ_CONFLATE: measured to accept the option and deliver
-            // nothing (0 in 3s at 120/s). RCVHWM=1 plus drain-to-newest is
-            // the behaviour, without the silent death.
-            sock.set_rcvhwm(1).map_err(zmq_err)?;
+            // RCVHWM=120, not 1: a one-frame queue lets a STALE frame
+            // block the new one and a still device never replaces it.
+            // drain-to-newest over a bounded queue is the behaviour; see
+            // Subscriber::connect for the full why.
+            sock.set_rcvhwm(120).map_err(zmq_err)?;
             for ep in endpoints {
                 sock.connect(ep).map_err(zmq_err)?;
             }

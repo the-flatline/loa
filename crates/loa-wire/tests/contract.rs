@@ -157,3 +157,24 @@ fn an_alias_is_only_for_its_own_topic() {
     let e = encode("ripperdoc", &env).unwrap_err();
     assert!(matches!(e, Error::TopicMismatch { .. }), "{e}");
 }
+
+#[test]
+fn a_publisher_reaches_a_subscriber_over_tcp() {
+    // The e2e relay found the gap: every socket test so far was PUSH->PULL.
+    // PUB->SUB is the whole feed; prove the pair, with the slow-joiner
+    // grace the contract promises.
+    let ctx = zmq::Context::new();
+    let pub_sock = loa_wire::Publisher::bind(&ctx, "tcp://127.0.0.1:19020").unwrap();
+    let mut sub = loa_wire::Subscriber::connect(
+        &ctx, &["tcp://127.0.0.1:19020".into()], &["ripperdoc"]).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    let env = face_msg();
+    pub_sock.publish("ripperdoc", &env).unwrap();
+    let t0 = std::time::Instant::now();
+    let msg = loop {
+        if let Some(m) = sub.drain().unwrap() { break m; }
+        assert!(t0.elapsed() < std::time::Duration::from_secs(3), "SUB saw nothing");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    };
+    assert_eq!(msg.topic, "ripperdoc");
+}

@@ -1,0 +1,17 @@
+[package]
+name = "ripperdoc"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "the bench console — Workbench chrome, a live face and ring, measured redraw rate"
+
+[dependencies]
+loa-wire = { path = "../loa-wire" }
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Self-contained while the root workspace names its members one by one; once
+# ripperdoc is a workspace member this marker disappears from cargo's view and
+# the root governs. Without it, building this crate by path fails: a crate
+# under a workspace root must be a member or declare itself excluded.
+[workspace]

@@ -3,6 +3,7 @@
 //! second route. tiny_http owns the protocol; this file owns the dispatch.
 
 use std::sync::Mutex;
+use std::thread;
 
 use tokio::sync::mpsc::UnboundedSender;
 use std::sync::Arc;
