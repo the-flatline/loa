@@ -145,8 +145,11 @@ impl Oled {
         for c in INIT {
             p.cmd(&[c])?;
         }
-        // Orientation is applied from DEFAULT_FLIP so the glass is right at
-        // power-on, not whenever the feed happens to arrive.
+        // The panel's natural orientation at power-on. Flip is a SETTING:
+        // the daemon applies it from held state on every blit, so the glass
+        // is right as soon as the first frame lands — the init sequence
+        // carries no opinion about orientation (INIT ends A0,C0), and this
+        // line matches it exactly.
         p.set_flip(false)?;
         Ok(p)
     }
