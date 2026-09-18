@@ -104,6 +104,25 @@ impl Vault {
         // constant-time: this is a secret comparison or it is nothing.
         constant_time_eq(presented.as_bytes(), self.presented_token().as_bytes())
     }
+
+    /// The door's answer for an append: the reference's dict, fields and all.
+    pub fn append_response(&self, entry: &str) -> serde_json::Value {
+        match self.append(entry) {
+            Ok(n) => serde_json::json!({"ok": true, "sealed": true, "entries": n}),
+            Err(_) => serde_json::json!({"ok": false, "reason": "vault gone", "sealed": false}),
+        }
+    }
+
+    /// READ logs itself before any words move, so a reader who deletes the log
+    /// line with the read still leaves the line. 30 verbatim lines, oldest
+    /// first, exactly as written.
+    pub fn read_response(&self) -> serde_json::Value {
+        match self.read() {
+            Ok((entries, access_log)) =>
+                serde_json::json!({"ok": true, "access_log": access_log, "entries": entries}),
+            Err(_) => serde_json::json!({"ok": false, "reason": "vault gone", "sealed": false}),
+        }
+    }
 }
 
 // --- internals: entropy, atomic writes, comparison ------------------------
@@ -355,6 +374,17 @@ fn write_status(&self) -> Result<(), String> {
     write_mode(&self.p("status.json"), format!("{pretty}\n").as_bytes(), 0o644)
 }
 
+/// status.json for the door: the reference's `health()` shape, with
+/// `sealed`/`entries` folded from whether the journal decrypts.
+pub fn health(&self) -> serde_json::Value {
+    let sealed = self.load();
+    let mut s = self.public_status();
+    let count = sealed.as_ref().map(|e| e.len()).unwrap_or(0);
+    s["sealed"] = serde_json::json!(sealed.is_some());
+    s["entries"] = serde_json::json!(count);
+    s
+}
+
 /// Public status for the feed: mtime-cached so a 120fps face page never
 /// rereads files. The renderer gets a number, not a syscall.
 pub fn public_status(&self) -> serde_json::Value {
@@ -482,3 +512,4 @@ mod tests {
     }
 
 }
+
