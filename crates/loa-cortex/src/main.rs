@@ -9,9 +9,10 @@
 //!            and republished whole (the merge leg of the same channel).
 //!   news     the door's thread posts StateChanged / Event — commands land
 //!            on the feed the moment the verb lands. News, never a tick.
-//!   power    rails are read on the body once a second; what rides the wire
-//!            is a CHANGE, not the sample. Hardware's clock, inside the
-//!            daemon — the publishing rule applies to us too.
+//!   power    rails are read on the body once a second, next to the vault's
+//!            public status; what rides the wire is a CHANGE in either, not
+//!            the sample. Hardware's clock, inside the daemon — the
+//!            publishing rule applies to us too.
 //!
 //! Boot order is the init handshake: bind everything, then publish `init`
 //! six times over five seconds (a PUB/SUB slow joiner misses the first
@@ -336,17 +337,32 @@ async fn main() {
     }
 
     // --- the loop: two FDs, one task, zero clocks --------------------------
-    let (power_tx, mut power_rx) = tokio::sync::mpsc::unbounded_channel::<HashMap<String, f64>>();
+    let (power_tx, mut power_rx) = tokio::sync::mpsc::unbounded_channel::<pb::envelope::Body>();
     {
+        // One thread, one hertz, both body-only facts: the PMIC rails and
+        // the vault's public seal. Off-Pi the rails are empty and the seal
+        // is real — "no rails" is a fact, not a silence. Publish on a change
+        // in EITHER; a vault append must reach the FRAG page even while the
+        // volts sit still.
         let tx = power_tx;
+        let vault2 = Arc::clone(&vault);
         std::thread::spawn(move || {
-            let mut last: HashMap<String, f64> = HashMap::new();
+            let mut last_rails: HashMap<String, f64> = HashMap::new();
+            let mut last_seal = String::new();
             loop {
                 std::thread::sleep(Duration::from_secs(1));
-                let now = read_rails();
-                if now != last && !now.is_empty() {
-                    last = now.clone();
-                    if tx.send(now).is_err() {
+                let rails = read_rails();
+                let seal = vault2.public_status();
+                let seal_s = seal.to_string();
+                if rails != last_rails || seal_s != last_seal {
+                    last_rails = rails.clone();
+                    last_seal = seal_s;
+                    let map: serde_json::Map<String, Value> = seal
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default();
+                    let body = build::build_power(&rails, &map);
+                    if tx.send(body).is_err() {
                         break;
                     }
                 }
@@ -379,10 +395,8 @@ async fn main() {
                     }
                 }
             }
-            Some(rails) = power_rx.recv() => {
-                let map: serde_json::Map<String, Value> = rails.into_iter()
-                    .map(|(k, v)| (k, Value::from(v))).collect();
-                publish(&pub_sock_ref, "power", build::build_power(&map));
+            Some(body) = power_rx.recv() => {
+                publish(&pub_sock_ref, "power", body);
             }
         }
     }

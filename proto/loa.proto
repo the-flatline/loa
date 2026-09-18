@@ -44,7 +44,12 @@
 // update would silently clobber the fields it does not own with zero values.
 // Presence is what makes "I have a reading for this" sayable.
 //
-// BUMP SCHEMA_VERSION (loa-wire) on any change here. This schema is v10.
+// BUMP SCHEMA_VERSION (loa-wire) on any change here. This schema is v11.
+//
+// v11: Power carries `frag`, the vault's public seal state. The FRAG page
+// draws it, the body is the only place that can read it, and the rule is
+// that facts ARRIVE — the Python left the field empty in practice and the
+// page lied about being gone. Sealed is not the same as empty.
 //
 // WIRE: [topic][Envelope], two frames. TOPICS are subjects; the oneof is the
 // type check; topic and payload must agree or the message dies at a boundary.
@@ -173,6 +178,11 @@ message Weather {
 message Power {
   map<string, double> rails = 1;
   optional double ts = 2;
+  // The vault's public seal state, stringified as the body sees it. The FRAG
+  // page draws this, so it must ARRIVE rather than be fetched — a page that
+  // reaches back for one field is a poller wearing a subscriber's coat. The
+  // rails are its own numbers; a vault event re-publishes the whole message.
+  map<string, string> frag = 3;
 }
 
 // What hurts, right now. Rows are stored as structured rows, not as one

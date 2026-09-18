@@ -3,6 +3,7 @@
 //! face has pixels to ride along is the caller's business — the relay hands
 //! frame bytes in, and this module assembles the state legs only.
 
+use std::collections::HashMap;
 use crate::state::{Cortex, State};
 use loa_wire::pb;
 
@@ -202,17 +203,30 @@ mod tests {
     }
 }
 
-/// The power topic: rails as read on the body. The map arrives as JSON from
-/// the sampler; the wire wants string values (schema: map<string,double>).
-/// An empty map still rides — "no rails readable" is a fact the FRAG page
-/// draws, and a topic that goes silent looks exactly like a dead body.
-pub fn build_power(rails: &serde_json::Map<String, serde_json::Value>) -> pb::envelope::Body {
+/// The power topic: rails as read on the body, plus the vault's public
+/// seal state. The rails are numbers (map<string,double>); the seal is
+/// stringified (map<string,string>) because it crosses as the body's own
+/// status.json fields and a page that decodes a bool from the word "true"
+/// beats a page that invents one. The FRAG page draws the seal; the body is
+/// the only place that can read it; facts ARRIVE — empty is not "gone", it
+/// is "unknown", and the page must show the truth. An empty rails map still
+/// rides — "no rails readable" is a fact, and a silent topic looks exactly
+/// like a dead body.
+pub fn build_power(
+    rails: &HashMap<String, f64>,
+    seal: &serde_json::Map<String, serde_json::Value>,
+) -> pb::envelope::Body {
     let mut m = pb::Power::default();
     m.ts = Some(crate::state::now_s());
     for (k, v) in rails {
-        if let Some(f) = v.as_f64() {
-            m.rails.insert(k.clone(), f);
-        }
+        m.rails.insert(k.clone(), *v);
+    }
+    for (k, v) in seal {
+        let s = match v {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        m.frag.insert(k.clone(), s);
     }
     pb::envelope::Body::Power(m)
 }
@@ -235,4 +249,28 @@ pub fn build_event(kind: &str, detail: &serde_json::Value, ts: f64) -> pb::envel
         }
     }
     pb::envelope::Body::Event(m)
+}
+
+#[cfg(test)]
+mod power_tests {
+    use super::*;
+
+    #[test]
+    fn rails_and_seal_cross_in_one_message() {
+        let mut rails = HashMap::new();
+        rails.insert("3V3_SYS_V".to_string(), 3.31);
+        rails.insert("throttled".to_string(), 983040.0);
+        let seal: serde_json::Map<String, serde_json::Value> = serde_json::from_str(
+            r#"{"sealed": true, "entries": 3, "hash": "5d41402abc4b2a76", "marker": null}"#)
+            .unwrap();
+        let body = build_power(&rails, &seal);
+        let pb::envelope::Body::Power(m) = body else { panic!("wrong body") };
+        assert_eq!(m.rails["3V3_SYS_V"], 3.31);
+        // status.json fields stringify: bools and numbers become their words,
+        // a null becomes "null" — the face parses them back on arrival.
+        assert_eq!(m.frag["sealed"], "true");
+        assert_eq!(m.frag["entries"], "3");
+        assert_eq!(m.frag["hash"], "5d41402abc4b2a76");
+        assert_eq!(m.frag["marker"], "null");
+    }
 }

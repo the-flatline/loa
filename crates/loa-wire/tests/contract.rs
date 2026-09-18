@@ -45,14 +45,16 @@ fn topic_and_payload_must_agree_at_the_publisher() {
 #[test]
 fn a_foreign_schema_fails_on_arrival_not_by_misreading() {
     let mut env = face_msg();
-    env.schema_version = SCHEMA_VERSION - 2;
-    // encode refuses to SEND it...
+    let other = SCHEMA_VERSION - 2;
+    env.schema_version = other;
+    // encode refuses to SEND it... (the version, not a literal: a test that
+    // hardcodes the number breaks on every bump and proves nothing between)
     let e = encode("ripperdoc", &env).unwrap_err();
-    assert!(matches!(e, Error::SchemaMismatch(8)), "{e}");
+    assert!(matches!(e, Error::SchemaMismatch(v) if v == other), "{e}");
     // ...and a hand-built frame fails at the consumer's decode.
     let raw = env.encode_to_vec();
     let e = decode([b"ripperdoc".to_vec(), raw]).unwrap_err();
-    assert!(matches!(e, Error::SchemaMismatch(8)), "{e}");
+    assert!(matches!(e, Error::SchemaMismatch(v) if v == other), "{e}");
 }
 
 #[test]

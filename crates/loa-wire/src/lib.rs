@@ -36,8 +36,8 @@ use prost::Message as _;
 
 /// Bump on ANY change to proto/loa.proto. Both legs check it, so a body and a
 /// console that disagree fail on arrival instead of misreading fields into
-/// plausible rubbish. This schema is v10: state down, frames up, news-only.
-pub const SCHEMA_VERSION: u32 = 10;
+/// plausible rubbish. This schema is v11: state down, frames up, news-only.
+pub const SCHEMA_VERSION: u32 = 11;
 
 /// Every topic the cortex publishes. Matches the oneof field names in the
 /// proto — that is what lets `encode` and `decode` stay generic. `init` is

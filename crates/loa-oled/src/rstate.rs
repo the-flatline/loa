@@ -103,10 +103,10 @@ pub struct RenderState {
     /// body's own knowledge rather than the brain's.
     pub fault_seen: bool,
     // -- the vault and the rails --
-    /// The vault's public seal state as a plain map. Nothing on the wire
-    /// carries it — the cortex never publishes status.json on a topic — so
-    /// it is empty on this device, and the FRAG page says GONE with zero
-    /// counts: the state the reference drew for a missing file.
+    /// The vault's public seal state, as the body publishes it on `power`
+    /// (frag). Absent news is empty, and the FRAG page draws GONE with zero
+    /// counts — the state a missing status.json drew in the reference. The
+    /// device never reads the file itself; facts arrive.
     pub seal: Map<String, Value>,
     pub rails: BTreeMap<String, f64>,
     /// Some(_) once a `power` message was held; the PWR page's report age.
@@ -300,6 +300,15 @@ impl RenderState {
                 self.rails.clear(); // full-shape news: the map is the whole truth
                 for (k, v) in &m.rails {
                     self.rails.insert(k.clone(), *v);
+                }
+                // The seal crosses as a string map (a protobuf map is one
+                // value type); the FRAG page reads a typed one. Convert on
+                // arrival so the page sees the shape it wants and the wire
+                // keeps the shape a map can hold. A value that is neither a
+                // number, a bool, nor parseable stays a string.
+                self.seal.clear();
+                for (k, v) in &m.frag {
+                    self.seal.insert(k.clone(), seal_value(v));
                 }
                 // The throttle bits ride the rails map as a double
                 // (983040.0); read them as ints, then keep them out of the
@@ -579,6 +588,7 @@ mod tests {
                 body: Some(pb::envelope::Body::Power(pb::Power {
                     rails,
                     ts: Some(5.0),
+                    ..Default::default()
                 })),
             },
         );
@@ -587,5 +597,41 @@ mod tests {
         assert_eq!(st.power_throttled.unwrap() & THROTTLE_THR, THROTTLE_THR);
         assert_eq!(st.rails.len(), 1, "throttled is not a rail row");
         assert_eq!(st.power_ts, Some(5.0));
+    }
+}
+
+/// A frag-map string back into the typed shape the FRAG page reads: bools
+/// by word, numbers by parse, everything else as the string it is. The
+/// wire's map has one value type; this is the only place that remembers
+/// which field was which kind.
+pub fn seal_value(s: &str) -> Value {
+    match s {
+        "true" => Value::Bool(true),
+        "false" => Value::Bool(false),
+        "null" => Value::Null,
+        other => other.parse::<f64>().map(Value::from).unwrap_or_else(|_| Value::String(s.into())),
+    }
+}
+
+#[cfg(test)]
+mod seal_tests {
+    use super::seal_value;
+
+    #[test]
+    fn wire_strings_become_the_typed_shapes_the_page_reads() {
+        // The FRAG page asks for sealed as bool, counts as numbers, and the
+        // hash as a string — all crossed as one map<string,string>.
+        assert_eq!(seal_value("true").as_bool(), Some(true));
+        assert_eq!(seal_value("false").as_bool(), Some(false));
+        assert_eq!(seal_value("7").as_f64(), Some(7.0));
+        assert_eq!(seal_value("null"), serde_json::Value::Null);
+        assert_eq!(
+            seal_value("5d41402abc4b2a76").as_str(),
+            Some("5d41402abc4b2a76")
+        );
+        assert_eq!(
+            seal_value("SEALED 2026-09-18 / OPENED BY test").as_str(),
+            Some("SEALED 2026-09-18 / OPENED BY test")
+        );
     }
 }

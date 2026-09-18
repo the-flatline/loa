@@ -3,7 +3,6 @@
 //! second route. tiny_http owns the protocol; this file owns the dispatch.
 
 use std::sync::Mutex;
-use std::thread;
 
 use tokio::sync::mpsc::UnboundedSender;
 use std::sync::Arc;
@@ -336,6 +335,7 @@ fn route(
 
 #[cfg(test)]
 mod serve_tests {
+use std::thread;
     use super::*;
     use std::io::{Read as _, Write as _};
     use std::net::TcpStream;
