@@ -1,8 +1,8 @@
 [Unit]
-Description=loa-oled — the face display: owns SPI0, drives the glass
-# The face daemon. One unit, one name, and it is the Rust binary: cross-compiled
-# on dixie, no interpreter and no venv on the body. There is no second unit for
-# this job — two owners of SPI0 is two daemons fighting over the glass.
+Description=loa oled — the face display: owns SPI0, blits the ripperdoc topic
+# Rust binary built ON the body (scripts/deploy-rust.sh), no interpreter and no
+# venv. It is the only owner of SPI0: two units driving the glass is two daemons
+# fighting over it.
 After=network.target
 
 [Service]

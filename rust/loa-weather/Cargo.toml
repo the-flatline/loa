@@ -1,0 +1,12 @@
+[package]
+name = "loa-weather"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "the environment daemon: DHT11-class temp/humidity on GPIO4 + BMP180-class baro on I2C"
+
+[dependencies]
+loa-sense = { path = "../loa-sense" }
+loa-topic = { path = "../loa-topic" }
+loa-gpio = { path = "../loa-gpio" }
+libc = "0.2"

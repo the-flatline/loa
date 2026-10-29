@@ -1,0 +1,12 @@
+[package]
+name = "loa-sense"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "the senses' plumbing in Rust: publish a reading, answer the init handshake"
+
+[dependencies]
+loa-topic = { path = "../loa-topic" }
+zmq = "0.10"
+prost = "0.13"
+serde_json = "1"

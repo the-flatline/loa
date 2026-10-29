@@ -13,22 +13,14 @@
 //                 tiny things a viewer needs to frame it. NOT the data behind
 //                 the screen — if a number is drawn on the glass it arrives as
 //                 glass. Stateless viewer: hold the last frame, draw it.
-//     state       the same presentation fields, published DOWN to the glass
-//                 daemons, with no face in them. The devices receive state;
-//                 they publish frames. A declared alias lives in loa-wire's
-//                 ALIASES: the payload is a face-less Ripperdoc, because a
-//                 second message with the same eleven fields is two contracts
-//                 that drift. The devices never subscribe to `ripperdoc` —
-//                 that would be an echo of their own output.
 //     ring        the ring's pixels, its own interest
-//     pir sonar weather   one topic per sensor; the air is one interest
+//     pir sonar baro weather   one topic per sensor
 //     power       the chassis: PMIC rails, as read on the body
 //     fault       what hurts, right now
 //     event       something happened — a record
 //     init        the ask: every daemon re-sends its full payload now (the
 //                 cortex publishes it on start, because a restarted brain knows
-//                 nothing; it is a control message, and nothing on this wire
-//                 is ever ticked — see the NO TICK doctrine below)
+//                 nothing; it is a control message, never a ticked state)
 //
 // Every message rides as TWO ZMQ FRAMES: [topic name][Envelope]. The name is
 // the filter (ZMQ matches a subscription against the leading bytes of the first
@@ -44,33 +36,7 @@
 // update would silently clobber the fields it does not own with zero values.
 // Presence is what makes "I have a reading for this" sayable.
 //
-// BUMP SCHEMA_VERSION (loa-wire) on any change here. This schema is v11.
-//
-// v11: Power carries `frag`, the vault's public seal state. The FRAG page
-// draws it, the body is the only place that can read it, and the rule is
-// that facts ARRIVE — the Python left the field empty in practice and the
-// page lied about being gone. Sealed is not the same as empty.
-//
-// WIRE: [topic][Envelope], two frames. TOPICS are subjects; the oneof is the
-// type check; topic and payload must agree or the message dies at a boundary.
-//
-// PUBLISHING MODEL: news. A message rides the wire the instant it becomes
-// true — a rendered frame, a taken reading, a command's effect. Every message
-// is full-shape; a consumer never merges. Hardware sampling rates (a DHT is
-// 1 Hz) live INSIDE the daemon; the wire carries only what just became true.
-// The cortex holds state in RAM, so a late joiner is caught up by `init` and
-// lives on news from there.
-//
-// STATE DOWN, FRAMES UP. A device receives state, renders, and pushes the
-// finished frame back to the cortex on ITS OWN inbound topic; the cortex
-// relays the message to the consumer topic the ROUTES table names, swapping
-// ONLY the topic frame — the payload is relayed byte-for-byte, never parsed.
-// The relayed body keeps the consumer's own payload type (a frame is a
-// Ripperdoc; there is no second shape for it), so consumers see one shape
-// and one schema either way. The inbound topic is not a payload name; the
-// ROUTES table in loa-wire declares the path. An inbound topic with no route
-// is refused — routing is checked, payload bytes are trusted, because the
-// device knows its own glass.
+// BUMP SCHEMA_VERSION (loa/topic.py) on any change here.
 
 syntax = "proto3";
 
@@ -86,8 +52,7 @@ message Envelope {
     Ring ring = 3;
     Pir pir = 4;
     Sonar sonar = 5;
-    // tag 6 is retired and never reused; oneof has no `reserved`, this is the
-    // tombstone: pressure lives in Weather.
+    Baro baro = 6;
     Weather weather = 7;
     Power power = 8;
     Fault fault = 9;
@@ -102,7 +67,7 @@ message Envelope {
 // topic the daemons SUBSCRIBE to. A restarted cortex has empty RAM and knows
 // nothing about the body it just became; it publishes this, every running
 // daemon hears it and re-sends its FULL payload, and then everyone returns to
-// news: a message rides the wire when it becomes true, never on a clock.
+// change-only. A control message is not a state: it never rides the tick.
 message Init {
   optional string source = 1;   // who is asking (the cortex)
   optional double ts = 2;
@@ -160,17 +125,20 @@ message Sonar {
   optional double ts = 3;
 }
 
-// The weather: temp, humidity, and barometric pressure together. They are one
-// interest — the air — measured by chips on the same I2C door. One message,
-// one daemon, one topic: a consumer that wants the air asks once.
+message Baro {
+  optional double pressure_hpa = 1;
+  optional double temp_c = 2;
+  optional double ts = 3;
+  optional string trend = 4;          // rising | falling | steady
+  repeated double series = 5;         // the sparkline's points, oldest first
+  optional uint32 count = 6;
+}
+
 message Weather {
   optional double temp_c = 1;
   optional double hum_pct = 2;
   optional double ts = 3;
   optional uint32 count = 4;
-  optional double pressure_hpa = 5;
-  optional string trend = 6;          // rising | falling | steady
-  repeated double series = 7;         // the sparkline's points, oldest first
 }
 
 // The body's own power rails, read on the body. An interest of its own: the
@@ -178,11 +146,6 @@ message Weather {
 message Power {
   map<string, double> rails = 1;
   optional double ts = 2;
-  // The vault's public seal state, stringified as the body sees it. The FRAG
-  // page draws this, so it must ARRIVE rather than be fetched — a page that
-  // reaches back for one field is a poller wearing a subscriber's coat. The
-  // rails are its own numbers; a vault event re-publishes the whole message.
-  map<string, string> frag = 3;
 }
 
 // What hurts, right now. Rows are stored as structured rows, not as one

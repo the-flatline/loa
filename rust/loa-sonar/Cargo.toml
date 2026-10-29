@@ -1,0 +1,11 @@
+[package]
+name = "loa-sonar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "the ultrasonic ranger daemon: TRIG 23 / ECHO 22, microsecond echo timing"
+
+[dependencies]
+loa-sense = { path = "../loa-sense" }
+loa-topic = { path = "../loa-topic" }
+loa-gpio = { path = "../loa-gpio" }

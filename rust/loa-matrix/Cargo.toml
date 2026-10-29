@@ -1,0 +1,12 @@
+[package]
+name = "loa-matrix"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "loa's alert light: the 8x8 HT16K33 at I2C 0x70, one glyph for the body's condition"
+
+[dependencies]
+libc = "0.2"
+# The wire. Same contract as the ring and the panel: this display subscribes to
+# what the brain publishes rather than reaching into the cortex for state.
+loa-topic = { path = "../loa-topic" }
