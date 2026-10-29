@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/loa-fault --quiet
+ExecStart=/home/flatline/venv/bin/loa-fault --quiet
 User=flatline
 # exit 1 means it hurts — that is a successful sweep, not a failed unit
 SuccessExitStatus=0 1

@@ -52,9 +52,13 @@ Repo side is done: crate `rust/loa-oled`, module `oled.rs`, type `Oled`, unit
 `deploy/loa-oled.service`, `scripts/deploy-oled.sh`, the fault sweep's bus-owner check,
 and the references in `rust/README.md`, `tests/`, `deploy/install-cortex.sh`.
 
-Left: build it, run the suites, install it on the body, then stop and remove
-`loa-panel` there. The body currently has `loa-panel.service` enabled and **active**, and
-no `loa-oled.service` at all.
+DONE 2026-10-29: crate and binary are `loa-oled`, built on the body, installed to
+`/usr/local/bin/loa-oled`, unit `loa-oled.service` enabled and active at 40
+written/s. `loa-panel` is gone from the body entirely — unit file, symlink and
+binary. The fault sweep now reads clean (`faults: 0`), which it could not before:
+the September build of `loa-fault` still looked for `loa-panel`, so it reported
+PANEL DOWN and called the running oled a BUS CLASH while the panel was fine. The
+python package on the body had not been reinstalled since 2026-09-13.
 
 Trap already caught, worth keeping caught: `deploy/install-cortex.sh` retires dead units
 by *deleting them*, and `loa-oled` was on that list. Renaming the daemon to `loa-oled`

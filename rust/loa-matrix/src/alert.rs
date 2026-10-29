@@ -5,7 +5,7 @@
 //! this module does one thing: decide which *single* shape the body's own
 //! published condition deserves, and hold it.
 //!
-//! STOPGAP, deliberately. The house contract (see loa-ring, loa-panel) is that
+//! STOPGAP, deliberately. The house contract (see loa-ring, loa-oled) is that
 //! the BRAIN decides the tell and the display blits the pixels it is handed.
 //! That contract belongs here too, on a `matrix` topic, and it will move there
 //! — but the proto and the cortex are both being worked in another window

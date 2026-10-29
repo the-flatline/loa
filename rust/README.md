@@ -29,7 +29,7 @@
     Cargo.toml          the workspace
     .cargo/config.toml  the aarch64 linker: build on dixie, install to loa
     loa-topic/          the wire — protobuf bindings + subscriber (SHARED)
-    loa-panel/          the OLED daemon: subscribes, blits, no forks
+    loa-oled/           the OLED daemon: subscribes, blits, no forks
     ripperdoc/          the bench console, Ratatui
 
 ## The contract, in one place

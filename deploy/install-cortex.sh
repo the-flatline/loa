@@ -24,7 +24,7 @@ sudo cp deploy/loa-ring.service deploy/loa-cortex.service \
         deploy/loa-motion.service deploy/loa-sonar.service deploy/loa-weather.service \
         deploy/loa-fault.service deploy/loa-fault.timer /etc/systemd/system/
 # NO loa-oled.service: the face display is the Rust binary now, installed and
-# enabled by scripts/deploy-oled.sh. Enabling both is two daemons on one SPI
+# built and installed by scripts/deploy-rust.sh loa-oled. Enabling both is two daemons on one SPI
 # bus, and the sweep calls that BUS CLASH for good reason.
 sudo systemctl daemon-reload
 sudo systemctl enable --now loa-ring loa-cortex \
