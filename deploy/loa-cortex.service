@@ -4,7 +4,7 @@ After=network.target loa-ring.service loa-oled.service loa-store-tunnel.service
 
 [Service]
 Type=simple
-ExecStart=/home/flatline/venv/bin/loa-cortex
+ExecStart=/usr/local/bin/loa-cortex
 # Bind all interfaces; ice's firewall is the gate (dixie -> loa:8765 and :5556)
 Environment=LOA_API_BIND=0.0.0.0
 # The store's DSN (postgres on aleph, through the tunnel). The leading dash

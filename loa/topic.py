@@ -59,6 +59,7 @@ and a reading that vanishes because a subscriber was slow is a lie about the
 body. PUSH/PULL queues; PUB/SUB drops.
 """
 import json
+import logging
 import threading
 import time
 
@@ -66,6 +67,8 @@ import zmq
 from google.protobuf import json_format
 
 from .pb import loa_pb2 as pb
+
+log = logging.getLogger("loa.topic")
 
 #: Bump on ANY change to proto/loa.proto. Publisher and subscriber check it, so
 #: a body and a console that disagree fail on arrival instead of misreading.
@@ -322,6 +325,7 @@ class Mirror:
         self._sub = Subscriber(endpoints=endpoints, topics=topics, ctx=ctx)
         self._latest = {}
         self._at = {}
+        self._dropped = 0
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._loop, daemon=True)
@@ -331,12 +335,29 @@ class Mirror:
         while not self._stop.is_set():
             try:
                 got = self._sub.recv(200)
-            except Exception:                                   # noqa: BLE001
-                # Shutdown: the zmq context is going away under the socket (a
-                # timer process exiting, a test tearing down). A consumer being
-                # torn down is not a feed error, and it must not print a
-                # traceback into the journal that a human then has to rule out.
-                return
+            except Exception as exc:                            # noqa: BLE001
+                if self._stop.is_set():
+                    # Shutdown: the zmq context is going away under the socket (a
+                    # timer process exiting, a test tearing down). A consumer being
+                    # torn down is not a feed error, and it must not print a
+                    # traceback into the journal that a human then has to rule out.
+                    return
+                # A bad frame is NOT a shutdown. recv raises on a malformed
+                # payload, a topic/field mismatch or a schema mismatch, and this
+                # used to return for EVERY exception: one poisoned frame ended the
+                # reader for good while the process stayed up, the unit stayed
+                # `active`, /health kept answering, and the feed froze with no log
+                # line anywhere. That is what muted this bridge for six days
+                # unnoticed (2026-09-25), then twice more in one afternoon.
+                # Count it and keep reading -- one frame the console cannot parse
+                # must not stop the body reporting itself. The cortex-side
+                # subscriber already records that lesson for version mismatches.
+                self._dropped += 1
+                if self._dropped <= 5 or self._dropped % 100 == 0:
+                    log.warning("mirror: dropped unparseable frame (%d): %s",
+                                self._dropped, exc)
+                time.sleep(0.5)
+                continue
             if got is None:
                 continue
             name, env = got
